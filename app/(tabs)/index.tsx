@@ -7,7 +7,16 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Link } from 'expo-router';
 
+import { useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+
 export default function HomeScreen() {
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      console.log('Supabase connected:', !error, data);
+    });
+  }, []);
+
   return (
     <ParallaxScrollView
       headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
