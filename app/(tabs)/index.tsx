@@ -10,12 +10,17 @@ import { Link } from 'expo-router';
 import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
+import { Pressable, Text } from 'react-native';
+import { useAuth } from '@/context/AuthProvider';
+
 export default function HomeScreen() {
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data, error }) => {
-      console.log('Supabase connected:', !error, data);
-    });
-  }, []);
+//   useEffect(() => {
+//     supabase.auth.getSession().then(({ data, error }) => {
+//       console.log('Supabase connected:', !error, data);
+//     });
+//   }, []);
+
+  const { signOut } = useAuth();
 
   return (
     <ParallaxScrollView
@@ -26,6 +31,7 @@ export default function HomeScreen() {
           style={styles.reactLogo}
         />
       }>
+      <Pressable onPress={signOut}><Text>Sign out (temp)</Text></Pressable>
       <ThemedView style={styles.titleContainer}>
         <ThemedText type="title">Welcome!</ThemedText>
         <HelloWave />

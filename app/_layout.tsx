@@ -11,17 +11,20 @@ export const unstable_settings = {
 };
 
 function RootNavigator() {
-  const { session, loading } = useAuth();
+  const { session, profile, loading } = useAuth();
 
-  if (loading) {
-    return null; // swap for a splash/loading screen later if you want
-  }
+  if (loading) return null;
+
+  const isOnboarded = !!profile?.onboarded;
 
   return (
     <Stack>
-      <Stack.Protected guard={!!session}>
+      <Stack.Protected guard={!!session && isOnboarded}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+      </Stack.Protected>
+      <Stack.Protected guard={!!session && !isOnboarded}>
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       </Stack.Protected>
       <Stack.Protected guard={!session}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
