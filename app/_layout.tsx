@@ -7,14 +7,25 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthProvider';
 import { SplashLoading } from '@/components/SplashLoading';
 
+import { useFonts, Fraunces_500Medium, Fraunces_500Medium_Italic } from '@expo-google-fonts/fraunces';
+import { Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold } from '@expo-google-fonts/manrope';
+import { IBMPlexMono_400Regular, IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono';
+
+
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
 function RootNavigator() {
+  const [fontsLoaded] = useFonts({
+    Fraunces_500Medium, Fraunces_500Medium_Italic,
+    Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold,
+    IBMPlexMono_400Regular, IBMPlexMono_500Medium,
+  });
   const { session, profile, loading } = useAuth();
 
-  if (loading) return <SplashLoading />;
+  if (!fontsLoaded) return <SplashLoading />;
+  //if (loading) return <SplashLoading />;
 
   const isOnboarded = !!profile?.onboarded;
 
