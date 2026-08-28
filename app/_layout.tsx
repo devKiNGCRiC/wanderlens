@@ -5,6 +5,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthProvider';
+import { SplashLoading } from '@/components/SplashLoading';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -13,7 +14,7 @@ export const unstable_settings = {
 function RootNavigator() {
   const { session, profile, loading } = useAuth();
 
-  if (loading) return null;
+  if (loading) return <SplashLoading />;
 
   const isOnboarded = !!profile?.onboarded;
 

@@ -7,8 +7,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Link } from 'expo-router';
 
-import { useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+//import { useEffect } from 'react';
+//import { supabase } from '@/lib/supabase';
 
 import { Pressable, Text } from 'react-native';
 import { useAuth } from '@/context/AuthProvider';
