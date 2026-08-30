@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'react';
-import { View, StyleSheet, Text, Pressable, ActivityIndicator, Alert, Image, Modal } from 'react-native';
+import { View, StyleSheet, Text, Pressable, ActivityIndicator, Alert, Image } from 'react-native';
 import { Map, Camera, ViewAnnotation } from '@maplibre/maplibre-react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthProvider';
+import { ImageViewer } from '@/components/ImageViewer';
 
 const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
@@ -18,6 +19,7 @@ type Spot = {
 
 export default function MapScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ focusLat?: string; focusLng?: string }>();
   const { session } = useAuth();
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [spots, setSpots] = useState<Spot[]>([]);
@@ -42,7 +44,6 @@ export default function MapScreen() {
         const { data, error } = await supabase.rpc('nearby_spots', { lat, long: lng, radius_km: 30 });
         if (!error && data) {
           const spotsData = data as Spot[];
-          // wait for images to finish caching before pins ever render
           await Promise.all(
             spotsData
               .filter((s) => s.photo_url)
@@ -81,10 +82,14 @@ export default function MapScreen() {
     return <View style={styles.center}><Text style={styles.fallbackText}>Location permission is needed to show the map.</Text></View>;
   }
 
+  const focusCenter: [number, number] = params.focusLat && params.focusLng
+    ? [Number(params.focusLng), Number(params.focusLat)]
+    : [coords.lng, coords.lat];
+
   return (
     <View style={styles.container}>
       <Map style={styles.map} mapStyle={OPENFREEMAP_STYLE} logo={false}>
-        <Camera initialViewState={{ center: [coords.lng, coords.lat], zoom: 12 }} />
+        <Camera initialViewState={{ center: focusCenter, zoom: params.focusLat ? 14 : 12 }} />
         {spots.map((spot) => (
           <ViewAnnotation
             key={`${spot.id}-${deselectNonce}`}
@@ -123,22 +128,21 @@ export default function MapScreen() {
             {selected.best_time && <Text style={styles.cardBestTime}>· {selected.best_time}</Text>}
           </View>
           {selected.description && <Text style={styles.cardDescription}>{selected.description}</Text>}
-          {selected.created_by === session?.user.id && (
-            <Pressable onPress={() => handleDelete(selected.id)} style={styles.deleteBtn}>
-              <Text style={styles.deleteBtnText}>Delete spot</Text>
+
+          <View style={styles.cardActions}>
+            <Pressable onPress={() => router.push({ pathname: '/spot/[id]', params: { id: selected.id } })}>
+              <Text style={styles.viewDetailsText}>View full details →</Text>
             </Pressable>
-          )}
+            {selected.created_by === session?.user.id && (
+              <Pressable onPress={() => handleDelete(selected.id)}>
+                <Text style={styles.deleteBtnText}>Delete spot</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       )}
 
-      <Modal visible={viewerVisible} transparent animationType="fade">
-        <Pressable style={styles.viewerBackdrop} onPress={() => setViewerVisible(false)}>
-          {selected?.photo_url && <Image source={{ uri: selected.photo_url }} style={styles.viewerImage} resizeMode="contain" />}
-          <Pressable onPress={() => setViewerVisible(false)} style={styles.viewerClose}>
-            <Text style={styles.cardCloseText}>✕</Text>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <ImageViewer visible={viewerVisible} uri={selected?.photo_url} onClose={() => setViewerVisible(false)} />
 
       <Pressable style={styles.fab} onPress={() => router.push('/add-spot')}>
         <Text style={styles.fabText}>+</Text>
@@ -164,11 +168,9 @@ const styles = StyleSheet.create({
   cardMetaRow: { flexDirection: 'row', marginTop: 4 },
   cardBestTime: { fontFamily: theme.font.mono, fontSize: 11, color: theme.color.muted, marginLeft: 6 },
   cardDescription: { fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.cream, marginTop: 8, lineHeight: 18 },
+  cardActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 },
+  viewDetailsText: { color: theme.color.gold, fontFamily: theme.font.body, fontSize: 12.5 },
+  deleteBtnText: { color: theme.color.ember, fontFamily: theme.font.body, fontSize: 12.5 },
   fab: { position: 'absolute', right: 20, bottom: 100, width: 52, height: 52, borderRadius: 26, backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   fabText: { color: theme.color.cream, fontSize: 26, fontWeight: '600', marginTop: -2 },
-  deleteBtn: { marginTop: 12, alignSelf: 'flex-start' },
-  deleteBtnText: { color: theme.color.ember, fontFamily: theme.font.body, fontSize: 12.5 },
-  viewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' },
-  viewerImage: { width: '100%', height: '80%' },
-  viewerClose: { position: 'absolute', top: 50, right: 24, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
 });
