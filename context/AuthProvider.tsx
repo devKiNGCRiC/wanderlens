@@ -12,8 +12,10 @@ type Profile = {
   banner_url: string | null;
   user_type: string | null;
   photography_genres: string[] | null;
+  place_interests: string[] | null;
   travel_style: string | null;
   home_city: string | null;
+  country: string | null;
   onboarded: boolean;
 };
 

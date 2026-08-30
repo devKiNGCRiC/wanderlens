@@ -27,6 +27,7 @@ export default function SpotDetail() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [likeCount, setLikeCount] = useState(0);
   const [liked, setLiked] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [loading, setLoading] = useState(true);
   const [viewerVisible, setViewerVisible] = useState(false);
@@ -42,6 +43,8 @@ export default function SpotDetail() {
     if (session) {
       const { data: likeRow } = await supabase.from('spot_likes').select('*').eq('spot_id', id).eq('user_id', session.user.id).maybeSingle();
       setLiked(!!likeRow);
+      const { data: savedRow } = await supabase.from('saved_spots').select('*').eq('spot_id', id).eq('user_id', session.user.id).maybeSingle();
+      setSaved(!!savedRow);
     }
 
     const { data: commentData } = await supabase
@@ -63,6 +66,17 @@ export default function SpotDetail() {
     } else {
       await supabase.from('spot_likes').insert({ spot_id: spot.id, user_id: session.user.id });
       setLiked(true); setLikeCount((c) => c + 1);
+    }
+  }
+
+  async function toggleSave() {
+    if (!session || !spot) return;
+    if (saved) {
+      await supabase.from('saved_spots').delete().eq('spot_id', spot.id).eq('user_id', session.user.id);
+      setSaved(false);
+    } else {
+      await supabase.from('saved_spots').insert({ spot_id: spot.id, user_id: session.user.id });
+      setSaved(true);
     }
   }
 
@@ -136,9 +150,12 @@ export default function SpotDetail() {
             <Pressable onPress={handleShare} style={styles.actionBtn}>
               <Ionicons name="share-outline" size={20} color={theme.color.cream} />
             </Pressable>
+            <Pressable onPress={toggleSave} style={styles.actionBtn}>
+              <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color={saved ? theme.color.gold : theme.color.cream} />
+            </Pressable>
             <Pressable onPress={viewOnMap} style={[styles.actionBtn, { marginLeft: 'auto' }]}>
               <Ionicons name="map-outline" size={18} color={theme.color.gold} />
-              <Text style={[styles.actionText, { color: theme.color.gold }]}>View on map</Text>
+              <Text style={[styles.actionText, { color: theme.color.gold }]}>Map</Text>
             </Pressable>
           </View>
 
@@ -183,7 +200,7 @@ const styles = StyleSheet.create({
   tag: { backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: 20, paddingVertical: 5, paddingHorizontal: 12 },
   tagText: { fontFamily: theme.font.mono, fontSize: 10.5, color: theme.color.gold },
   description: { fontFamily: theme.font.bodyRegular, fontSize: 14, color: theme.color.cream, marginTop: 14, lineHeight: 20 },
-  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 22, marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: theme.color.surface2 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: theme.color.surface2 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   actionText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   deleteBtn: { marginTop: 16 },
