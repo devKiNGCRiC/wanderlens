@@ -36,6 +36,7 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         <Stack.Screen name="add-spot" options={{ presentation: 'modal', title: 'Add a spot' }} />
+        <Stack.Screen name="edit-profile" options={{ presentation: 'modal', title: 'Edit profile' }} />
       </Stack.Protected>
       <Stack.Protected guard={!!session && !isOnboarded}>
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />

@@ -7,6 +7,9 @@ type Profile = {
   id: string;
   full_name: string | null;
   username: string | null;
+  bio: string | null;
+  avatar_url: string | null;
+  banner_url: string | null;
   user_type: string | null;
   photography_genres: string[] | null;
   travel_style: string | null;
