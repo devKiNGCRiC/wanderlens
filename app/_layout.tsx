@@ -1,3 +1,4 @@
+//_layout.tsx
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -25,7 +26,7 @@ function RootNavigator() {
   const { session, profile, loading } = useAuth();
 
   if (!fontsLoaded) return <SplashLoading />;
-  //if (loading) return <SplashLoading />;
+  if (loading) return <SplashLoading />;
 
   const isOnboarded = !!profile?.onboarded;
 
@@ -34,6 +35,7 @@ function RootNavigator() {
       <Stack.Protected guard={!!session && isOnboarded}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+        <Stack.Screen name="add-spot" options={{ presentation: 'modal', title: 'Add a spot' }} />
       </Stack.Protected>
       <Stack.Protected guard={!!session && !isOnboarded}>
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />

@@ -1,3 +1,4 @@
+//AuthProvider.tsx
 import { createContext, useContext, useEffect, useState, useCallback, type PropsWithChildren } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -43,20 +44,40 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (!error) setProfile(data);
   }, []);
 
+  // useEffect(() => {
+  //   supabase.auth.getSession().then(async ({ data: { session } }) => {
+  //     setSession(session);
+  //     if (session?.user) await fetchProfile(session.user.id);
+  //     setLoading(false);
+  //   });
+
+  //   const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+  //     setSession(session);
+  //     if (session?.user) await fetchProfile(session.user.id);
+  //     else setProfile(null);
+  //   });
+
+  //   return () => listener.subscription.unsubscribe();
+  // }, [fetchProfile]);
+
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    let mounted = true;
+
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
       setSession(session);
-      if (session?.user) await fetchProfile(session.user.id);
+      if (session?.user) {
+        await fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
+      }
       setLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      if (session?.user) await fetchProfile(session.user.id);
-      else setProfile(null);
-    });
-
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
   }, [fetchProfile]);
 
   const refreshProfile = useCallback(async () => {
