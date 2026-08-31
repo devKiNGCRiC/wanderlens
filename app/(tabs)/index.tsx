@@ -49,25 +49,28 @@ export default function FeedScreen() {
   useFocusEffect(
     useCallback(() => {
       (async () => {
-       const loc = await refreshLocation();
-        if (loc) {
-          const { lat, lng } = loc;
-          const { data: nearby } = await supabase.rpc('nearby_spots', { lat, long: lng, radius_km: 30 });
-          if (nearby) setNearbySpots((nearby as NearbySpot[]).slice(0, 6));
-
-          const { data: people } = await supabase.rpc('nearby_photographers', { lat, long: lng, radius_km: 30 });
-          if (people) setPhotographers(people as Photographer[]);
-        }
+        setLoading(true);
+        const tasks: PromiseLike<any>[] = [loadFeed(genreFilter, timeFilter)];
         if (session) {
-          const { data: likes } = await supabase.from('spot_likes').select('spot_id').eq('user_id', session.user.id);
-          setLikedIds(new Set((likes ?? []).map((l) => l.spot_id)));
-          const { data: saves } = await supabase.from('saved_spots').select('spot_id').eq('user_id', session.user.id);
-          setSavedIds(new Set((saves ?? []).map((s) => s.spot_id)));
+          tasks.push(
+            supabase.from('spot_likes').select('spot_id').eq('user_id', session.user.id)
+              .then(({ data }) => setLikedIds(new Set((data ?? []).map((l) => l.spot_id)))),
+            supabase.from('saved_spots').select('spot_id').eq('user_id', session.user.id)
+              .then(({ data }) => setSavedIds(new Set((data ?? []).map((s) => s.spot_id))))
+          );
         }
-        await loadFeed(genreFilter, timeFilter);
+        const [loc] = await Promise.all([refreshLocation(), ...tasks]);
+        if (loc) {
+          const [nearbyRes, peopleRes] = await Promise.all([
+            supabase.rpc('nearby_spots', { lat: loc.lat, long: loc.lng, radius_km: 30 }),
+            supabase.rpc('nearby_photographers', { lat: loc.lat, long: loc.lng, radius_km: 30 }),
+          ]);
+          if (nearbyRes.data) setNearbySpots((nearbyRes.data as NearbySpot[]).slice(0, 6));
+          if (peopleRes.data) setPhotographers(peopleRes.data as Photographer[]);
+        }
         setLoading(false);
       })();
-    }, [])
+    }, [session])
   );
 
   function applyFilters(genre: string | null, time: string | null) {

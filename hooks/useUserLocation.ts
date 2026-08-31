@@ -15,7 +15,13 @@ export function useUserLocation() {
 
     const lastKnown = await Location.getLastKnownPositionAsync();
     if (lastKnown) {
-      setCoords({ lat: lastKnown.coords.latitude, lng: lastKnown.coords.longitude });
+      const result = { lat: lastKnown.coords.latitude, lng: lastKnown.coords.longitude };
+      setCoords(result);
+      // Refine accuracy quietly in the background — doesn't block the caller
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        .then((fresh) => setCoords({ lat: fresh.coords.latitude, lng: fresh.coords.longitude }))
+        .catch(() => {});
+      return result;
     }
 
     const fresh = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
