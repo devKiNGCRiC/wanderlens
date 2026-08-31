@@ -2,12 +2,13 @@ import { useState, useCallback } from 'react';
 import { View, StyleSheet, Text, Pressable, ActivityIndicator, Alert, Image } from 'react-native';
 import { Map, Camera, ViewAnnotation } from '@maplibre/maplibre-react-native';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
-import * as Location from 'expo-location';
+import { useUserLocation } from '@/hooks/useUserLocation';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
+import { ScreenBackground } from '@/components/ScreenBackground';
 
 const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
@@ -27,21 +28,16 @@ export default function MapScreen() {
   const [selected, setSelected] = useState<Spot | null>(null);
   const [deselectNonce, setDeselectNonce] = useState(0);
   const [viewerVisible, setViewerVisible] = useState(false);
+  const { refresh: refreshLocation } = useUserLocation();
 
   useFocusEffect(
     useCallback(() => {
       (async () => {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          setLoading(false);
-          return;
-        }
-        const pos = await Location.getCurrentPositionAsync({});
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setCoords({ lat, lng });
+        const loc = await refreshLocation();
+        if (!loc) { setLoading(false); return; }
+        setCoords(loc);
 
-        const { data, error } = await supabase.rpc('nearby_spots', { lat, long: lng, radius_km: 30 });
+        const { data, error } = await supabase.rpc('nearby_spots', { lat: loc.lat, long: loc.lng, radius_km: 30 });
         if (!error && data) {
           const spotsData = data as Spot[];
           await Promise.all(
@@ -87,72 +83,74 @@ export default function MapScreen() {
     : [coords.lng, coords.lat];
 
   return (
-    <View style={styles.container}>
-      <Map style={styles.map} mapStyle={OPENFREEMAP_STYLE} logo={false}>
-        <Camera initialViewState={{ center: focusCenter, zoom: params.focusLat ? 14 : 12 }} />
-        {spots.map((spot) => (
-          <ViewAnnotation
-            key={`${spot.id}-${deselectNonce}`}
-            id={`${spot.id}-${deselectNonce}`}
-            lngLat={[spot.lng, spot.lat]}
-            onSelect={() => setSelected(spot)}
-          >
-            <View style={styles.pin}>
-              {spot.photo_url ? (
-                <Image source={{ uri: spot.photo_url }} style={styles.pinImage} />
-              ) : (
-                <View style={styles.pinFallback}>
-                  <Ionicons name="camera" size={16} color={theme.color.gold} />
-                </View>
-              )}
-            </View>
-          </ViewAnnotation>
-        ))}
-      </Map>
+    <ScreenBackground>
+      <View style={styles.container}>
+        <Map style={styles.map} mapStyle={OPENFREEMAP_STYLE} logo={false}>
+          <Camera initialViewState={{ center: focusCenter, zoom: params.focusLat ? 14 : 12 }} />
+          {spots.map((spot) => (
+            <ViewAnnotation
+              key={`${spot.id}-${deselectNonce}`}
+              id={`${spot.id}-${deselectNonce}`}
+              lngLat={[spot.lng, spot.lat]}
+              onSelect={() => setSelected(spot)}
+            >
+              <View style={styles.pin}>
+                {spot.photo_url ? (
+                  <Image source={{ uri: spot.photo_url }} style={styles.pinImage} />
+                ) : (
+                  <View style={styles.pinFallback}>
+                    <Ionicons name="camera" size={16} color={theme.color.gold} />
+                  </View>
+                )}
+              </View>
+            </ViewAnnotation>
+          ))}
+        </Map>
 
-      {selected && (
-        <View style={styles.card}>
-          <Pressable onPress={closeCard} style={styles.cardClose}>
-            <Text style={styles.cardCloseText}>✕</Text>
-          </Pressable>
-
-          {selected.photo_url && (
-            <Pressable onPress={() => setViewerVisible(true)}>
-              <Image source={{ uri: selected.photo_url }} style={styles.cardImage} />
+        {selected && (
+          <View style={styles.card}>
+            <Pressable onPress={closeCard} style={styles.cardClose}>
+              <Text style={styles.cardCloseText}>✕</Text>
             </Pressable>
-          )}
-          <Text style={styles.cardTitle}>{selected.title}</Text>
-          <View style={styles.cardMetaRow}>
-            {selected.genre && <Text style={styles.cardGenre}>{selected.genre}</Text>}
-            {selected.time_of_day && <Text style={styles.cardBestTime}>· {selected.time_of_day}</Text>}
-            {selected.best_time && <Text style={styles.cardBestTime}>· {selected.best_time}</Text>}
-          </View>
-          {selected.description && <Text style={styles.cardDescription}>{selected.description}</Text>}
 
-          <View style={styles.cardActions}>
-            <Pressable onPress={() => router.push({ pathname: '/spot/[id]', params: { id: selected.id } })}>
-              <Text style={styles.viewDetailsText}>View full details →</Text>
-            </Pressable>
-            {selected.created_by === session?.user.id && (
-              <Pressable onPress={() => handleDelete(selected.id)}>
-                <Text style={styles.deleteBtnText}>Delete spot</Text>
+            {selected.photo_url && (
+              <Pressable onPress={() => setViewerVisible(true)}>
+                <Image source={{ uri: selected.photo_url }} style={styles.cardImage} />
               </Pressable>
             )}
+            <Text style={styles.cardTitle}>{selected.title}</Text>
+            <View style={styles.cardMetaRow}>
+              {selected.genre && <Text style={styles.cardGenre}>{selected.genre}</Text>}
+              {selected.time_of_day && <Text style={styles.cardBestTime}>· {selected.time_of_day}</Text>}
+              {selected.best_time && <Text style={styles.cardBestTime}>· {selected.best_time}</Text>}
+            </View>
+            {selected.description && <Text style={styles.cardDescription}>{selected.description}</Text>}
+
+            <View style={styles.cardActions}>
+              <Pressable onPress={() => router.push({ pathname: '/spot/[id]', params: { id: selected.id } })}>
+                <Text style={styles.viewDetailsText}>View full details →</Text>
+              </Pressable>
+              {selected.created_by === session?.user.id && (
+                <Pressable onPress={() => handleDelete(selected.id)}>
+                  <Text style={styles.deleteBtnText}>Delete spot</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
-        </View>
-      )}
+        )}
 
-      <ImageViewer visible={viewerVisible} uri={selected?.photo_url} onClose={() => setViewerVisible(false)} />
+        <ImageViewer visible={viewerVisible} uri={selected?.photo_url} onClose={() => setViewerVisible(false)} />
 
-      <Pressable style={styles.fab} onPress={() => router.push('/add-spot')}>
-        <Text style={styles.fabText}>+</Text>
-      </Pressable>
-    </View>
+        <Pressable style={styles.fab} onPress={() => router.push('/add-spot')}>
+          <Text style={styles.fabText}>+</Text>
+        </Pressable>
+      </View>
+    </ScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.color.dusk },
+  container: { flex: 1 },
   map: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.dusk, padding: 24 },
   fallbackText: { fontFamily: theme.font.bodyRegular, color: theme.color.muted, textAlign: 'center' },
@@ -171,6 +169,6 @@ const styles = StyleSheet.create({
   cardActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 },
   viewDetailsText: { color: theme.color.gold, fontFamily: theme.font.body, fontSize: 12.5 },
   deleteBtnText: { color: theme.color.ember, fontFamily: theme.font.body, fontSize: 12.5 },
-  fab: { position: 'absolute', right: 20, bottom: 100, width: 52, height: 52, borderRadius: 26, backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  fab: { position: 'absolute', right: 20, bottom: 28, width: 52, height: 52, borderRadius: 26, backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   fabText: { color: theme.color.cream, fontSize: 26, fontWeight: '600', marginTop: -2 },
 });

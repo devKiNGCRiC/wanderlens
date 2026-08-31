@@ -1,11 +1,13 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, FlatList } from 'react-native';
+import { View, Text, Pressable, StyleSheet, FlatList } from 'react-native';
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
+import { ScreenBackground } from '@/components/ScreenBackground';
+import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
 
 type SavedSpot = { id: string; title: string; photo_url: string | null; genre: string | null };
 
@@ -24,7 +26,7 @@ export default function SavedScreen() {
   }, [session]));
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.color.dusk }}>
+    <ScreenBackground>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
@@ -38,16 +40,12 @@ export default function SavedScreen() {
         keyExtractor={(item) => item.id}
         numColumns={3}
         contentContainerStyle={{ padding: 3, paddingBottom: 40 }}
-        renderItem={({ item }) => (
-          <Pressable style={styles.gridItem} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })}>
-            <View style={styles.gridInner}>
-              {item.photo_url ? <Image source={{ uri: item.photo_url }} style={styles.gridImage} /> : <View style={styles.gridFallback}><Ionicons name="camera-outline" size={18} color={theme.color.muted} /></View>}
-            </View>
-          </Pressable>
+        renderItem={({ item, index }) => (
+          <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
         )}
         ListEmptyComponent={<Text style={styles.emptyText}>Nothing saved yet — tap the bookmark icon on any spot to save it here.</Text>}
       />
-    </View>
+    </ScreenBackground>
   );
 }
 
@@ -55,9 +53,5 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.color.surface, alignItems: 'center', justifyContent: 'center' },
   heading: { fontFamily: theme.font.display, fontSize: 17, color: theme.color.cream },
-  gridItem: { flex: 1 / 3, aspectRatio: 1, padding: 3 },
-  gridInner: { flex: 1, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.color.surface2 },
-  gridImage: { flex: 1 },
-  gridFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 40 },
 });

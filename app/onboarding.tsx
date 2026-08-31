@@ -1,7 +1,9 @@
+//onboarding.tsx
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthProvider';
+import { ScreenBackground } from '@/components/ScreenBackground';
 
 const GENRES = ['Street', 'Landscape', 'Portrait', 'Astro', 'Wildlife', 'Architecture', 'Travel'];
 const TRAVEL_STYLES = ['Backpacker', 'Luxury', 'Solo', 'Family', 'Weekend Trips'];
@@ -39,37 +41,39 @@ export default function Onboarding() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Tell us about you</Text>
+    <ScreenBackground>
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.title}>Tell us about you</Text>
 
-      <Text style={styles.label}>I am a...</Text>
-      <View style={styles.row}>
-        {USER_TYPES.map((t) => (
-          <Chip key={t.value} label={t.label} selected={userType === t.value} onPress={() => setUserType(t.value)} />
-        ))}
-      </View>
+        <Text style={styles.label}>I am a...</Text>
+        <View style={styles.row}>
+          {USER_TYPES.map((t) => (
+            <Chip key={t.value} label={t.label} selected={userType === t.value} onPress={() => setUserType(t.value)} />
+          ))}
+        </View>
 
-      <Text style={styles.label}>Photography interests</Text>
-      <View style={styles.row}>
-        {GENRES.map((g) => (
-          <Chip key={g} label={g} selected={genres.includes(g)} onPress={() => toggleGenre(g)} />
-        ))}
-      </View>
+        <Text style={styles.label}>Photography interests</Text>
+        <View style={styles.row}>
+          {GENRES.map((g) => (
+            <Chip key={g} label={g} selected={genres.includes(g)} onPress={() => toggleGenre(g)} />
+          ))}
+        </View>
 
-      <Text style={styles.label}>Travel style</Text>
-      <View style={styles.row}>
-        {TRAVEL_STYLES.map((s) => (
-          <Chip key={s} label={s} selected={travelStyle === s} onPress={() => setTravelStyle(s)} />
-        ))}
-      </View>
+        <Text style={styles.label}>Travel style</Text>
+        <View style={styles.row}>
+          {TRAVEL_STYLES.map((s) => (
+            <Chip key={s} label={s} selected={travelStyle === s} onPress={() => setTravelStyle(s)} />
+          ))}
+        </View>
 
-      <Text style={styles.label}>Home city</Text>
-      <TextInput style={styles.input} placeholder="e.g. Guwahati" value={homeCity} onChangeText={setHomeCity} />
+        <Text style={styles.label}>Home city</Text>
+        <TextInput style={styles.input} placeholder="e.g. Guwahati" value={homeCity} onChangeText={setHomeCity} />
 
-      <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
-        <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Continue'}</Text>
-      </Pressable>
-    </ScrollView>
+        <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
+          <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Continue'}</Text>
+        </Pressable>
+      </ScrollView>
+    </ScreenBackground>
   );
 }
 

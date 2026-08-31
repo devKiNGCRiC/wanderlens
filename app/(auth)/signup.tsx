@@ -1,7 +1,9 @@
+//signup.tsx
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert } from 'react-native';
 import { Link } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { ScreenBackground } from '@/components/ScreenBackground';
 
 export default function SignUp() {
   const [email, setEmail] = useState('');
@@ -26,16 +28,18 @@ export default function SignUp() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Create your account</Text>
-      <TextInput style={styles.input} placeholder="Full name" value={fullName} onChangeText={setFullName} autoCapitalize="words" />
-      <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
-      <Pressable style={styles.button} onPress={handleSignUp} disabled={loading}>
-        <Text style={styles.buttonText}>{loading ? 'Creating account…' : 'Sign Up'}</Text>
-      </Pressable>
-      <Link href="/(auth)/login" style={styles.link}>Already have an account? Log in</Link>
-    </View>
+    <ScreenBackground>
+      <View style={styles.container}>
+        <Text style={styles.title}>Create your account</Text>
+        <TextInput style={styles.input} placeholder="Full name" value={fullName} onChangeText={setFullName} autoCapitalize="words" />
+        <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+        <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
+        <Pressable style={styles.button} onPress={handleSignUp} disabled={loading}>
+          <Text style={styles.buttonText}>{loading ? 'Creating account…' : 'Sign Up'}</Text>
+        </Pressable>
+        <Link href="/(auth)/login" style={styles.link}>Already have an account? Log in</Link>
+      </View>
+    </ScreenBackground>
   );
 }
 

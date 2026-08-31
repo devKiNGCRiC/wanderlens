@@ -10,6 +10,8 @@ import { ImageViewer } from '@/components/ImageViewer';
 import { TagInfoModal } from '@/components/TagInfoModal';
 import { ShareProfileModal } from '@/components/ShareProfileModal';
 import { flagEmoji, COUNTRIES } from '@/constants/countries';
+import { ScreenBackground } from '@/components/ScreenBackground';
+import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
 
 type MySpot = { id: string; title: string; photo_url: string | null; genre: string | null };
 
@@ -57,128 +59,133 @@ export default function ProfileScreen() {
 
   return (
     <>
-      <FlatList
-        style={styles.root}
-        data={mySpots}
-        keyExtractor={(item) => item.id}
-        numColumns={3}
-        contentContainerStyle={{ paddingBottom: 110 }}
-        ListHeaderComponent={
-          <View>
-            <View style={styles.banner}>
-              {profile?.banner_url ? (
-                <Pressable onPress={() => setViewerUri(profile.banner_url)} style={StyleSheet.absoluteFill}>
-                  <Image source={{ uri: profile.banner_url }} style={StyleSheet.absoluteFill} />
-                </Pressable>
-              ) : (
-                <LinearGradient colors={['#C9683E', '#4B3F72', theme.color.dusk]} style={StyleSheet.absoluteFill} />
-              )}
-              <LinearGradient colors={['transparent', theme.color.dusk]} style={styles.bannerScrim} />
-              <Pressable onPress={handleSignOut} style={styles.signOutIcon}>
-                <Ionicons name="log-out-outline" size={18} color={theme.color.cream} />
-              </Pressable>
-            </View>
-
-            <View style={styles.header}>
-              <Pressable onPress={() => profile?.avatar_url && setViewerUri(profile.avatar_url)} style={styles.avatar}>
-                {profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
-              </Pressable>
-
-              <Text style={styles.name}>{profile?.full_name || 'Traveler'}</Text>
-              {profile?.username ? <Text style={styles.username}>@{profile.username}</Text> : null}
-              {profile?.country && <Text style={styles.country}>{countryCode ? flagEmoji(countryCode) : ''} {profile.country}</Text>}
-              {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
-
-              <View style={styles.tagsRow}>
-                {typeLabel && (
-                  <Pressable onPress={() => setInfoTag(profile?.user_type ?? null)} style={styles.tag}>
-                    <Text style={styles.tagText}>{typeLabel}</Text>
+      <ScreenBackground>
+        <FlatList
+          style={styles.root}
+          data={mySpots}
+          keyExtractor={(item) => item.id}
+          numColumns={3}
+          contentContainerStyle={{ paddingBottom: 110 }}
+          ListHeaderComponent={
+            <View>
+              <View style={styles.banner}>
+                {profile?.banner_url ? (
+                  <Pressable onPress={() => setViewerUri(profile.banner_url)} style={StyleSheet.absoluteFill}>
+                    <Image source={{ uri: profile.banner_url }} style={StyleSheet.absoluteFill} />
                   </Pressable>
-                )}
-                {profile?.travel_style && (
-                  <Pressable onPress={() => setInfoTag(profile.travel_style)} style={styles.tag}>
-                    <Text style={styles.tagText}>{profile.travel_style}</Text>
-                  </Pressable>
-                )}
-                {profile?.home_city && <View style={styles.tag}><Text style={styles.tagText}>📍 {profile.home_city}</Text></View>}
-              </View>
-
-              {!!profile?.photography_genres?.length && (
-                <View style={styles.genreRow}>
-                  {profile.photography_genres.map((g) => (
-                    <Pressable key={g} onPress={() => setInfoTag(g)} style={styles.genreChip}>
-                      <Text style={styles.genreChipText}>{g}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-              {!!profile?.place_interests?.length && (
-                <View style={styles.genreRow}>
-                  {profile.place_interests.map((p) => (
-                    <Pressable key={p} onPress={() => setInfoTag(p)} style={styles.placeChip}>
-                      <Text style={styles.placeChipText}>{p}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-
-              <View style={styles.actionsRow}>
-                <Pressable onPress={() => router.push('/edit-profile')} style={styles.actionBtn}>
-                  <Ionicons name="create-outline" size={15} color={theme.color.gold} />
-                  <Text style={styles.actionBtnText}>Edit</Text>
-                </Pressable>
-                <Pressable onPress={() => setShareVisible(true)} style={styles.actionBtn}>
-                  <Ionicons name="share-social-outline" size={15} color={theme.color.gold} />
-                  <Text style={styles.actionBtnText}>Share</Text>
-                </Pressable>
-                <Pressable onPress={() => router.push('/saved')} style={styles.actionBtn}>
-                  <Ionicons name="bookmark-outline" size={15} color={theme.color.gold} />
-                  <Text style={styles.actionBtnText}>Saved</Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.divider} />
-              <Text style={styles.sectionEyebrow}>GALLERY</Text>
-              <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitle}>Captures</Text>
-                <Text style={styles.sectionCount}>{mySpots.length}</Text>
-              </View>
-              <Text style={styles.sectionHint}>Tap to open</Text>
-            </View>
-          </View>
-        }
-        renderItem={({ item, index }) => {
-          const rotations = [-2, 1.5, -1];
-          const rotate = rotations[index % 3];
-          return (
-            <Pressable
-              style={({ pressed }) => [styles.gridItem, pressed && { opacity: 0.75 }]}
-              onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })}
-            >
-              <View style={[styles.polaroidFrame, { transform: [{ rotate: `${rotate}deg` }] }]}>
-                {item.photo_url ? (
-                  <Image source={{ uri: item.photo_url }} style={styles.polaroidImage} />
                 ) : (
-                  <View style={styles.gridFallback}><Ionicons name="camera-outline" size={16} color={theme.color.muted} /></View>
+                  <LinearGradient colors={['#C9683E', '#4B3F72', theme.color.dusk]} style={StyleSheet.absoluteFill} />
                 )}
-                {item.genre && <Text style={styles.polaroidCaption} numberOfLines={1}>{item.genre}</Text>}
+                <LinearGradient colors={['transparent', theme.color.dusk]} style={styles.bannerScrim} />
+                <Pressable onPress={handleSignOut} style={styles.signOutIcon}>
+                  <Ionicons name="log-out-outline" size={18} color={theme.color.cream} />
+                </Pressable>
               </View>
-            </Pressable>
-          );
-        }}
-        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No captures yet — add one from the Map tab.</Text> : null}
-      />
-      <ImageViewer visible={!!viewerUri} uri={viewerUri} onClose={() => setViewerUri(null)} />
-      <TagInfoModal tag={infoTag} onClose={() => setInfoTag(null)} />
-      {session && (
-        <ShareProfileModal visible={shareVisible} onClose={() => setShareVisible(false)} userId={session.user.id} name={profile?.full_name || 'this traveler'} />
-      )}
+
+              <View style={styles.header}>
+                <Pressable onPress={() => profile?.avatar_url && setViewerUri(profile.avatar_url)} style={styles.avatar}>
+                  {profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
+                </Pressable>
+
+                <Text style={styles.name}>{profile?.full_name || 'Traveler'}</Text>
+                {profile?.username ? <Text style={styles.username}>@{profile.username}</Text> : null}
+                {profile?.country && <Text style={styles.country}>{countryCode ? flagEmoji(countryCode) : ''} {profile.country}</Text>}
+                {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+
+                <View style={styles.tagsRow}>
+                  {typeLabel && (
+                    <Pressable onPress={() => setInfoTag(profile?.user_type ?? null)} style={styles.tag}>
+                      <Text style={styles.tagText}>{typeLabel}</Text>
+                    </Pressable>
+                  )}
+                  {profile?.travel_style && (
+                    <Pressable onPress={() => setInfoTag(profile.travel_style)} style={styles.tag}>
+                      <Text style={styles.tagText}>{profile.travel_style}</Text>
+                    </Pressable>
+                  )}
+                  {profile?.home_city && <View style={styles.tag}><Text style={styles.tagText}>📍 {profile.home_city}</Text></View>}
+                </View>
+
+                {!!profile?.photography_genres?.length && (
+                  <View style={styles.genreRow}>
+                    {profile.photography_genres.map((g) => (
+                      <Pressable key={g} onPress={() => setInfoTag(g)} style={styles.genreChip}>
+                        <Text style={styles.genreChipText}>{g}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+                {!!profile?.place_interests?.length && (
+                  <View style={styles.genreRow}>
+                    {profile.place_interests.map((p) => (
+                      <Pressable key={p} onPress={() => setInfoTag(p)} style={styles.placeChip}>
+                        <Text style={styles.placeChipText}>{p}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+
+                <View style={styles.actionsRow}>
+                  <Pressable onPress={() => router.push('/edit-profile')} style={styles.actionBtn}>
+                    <Ionicons name="create-outline" size={15} color={theme.color.gold} />
+                    <Text style={styles.actionBtnText}>Edit</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setShareVisible(true)} style={styles.actionBtn}>
+                    <Ionicons name="share-social-outline" size={15} color={theme.color.gold} />
+                    <Text style={styles.actionBtnText}>Share</Text>
+                  </Pressable>
+                  <Pressable onPress={() => router.push('/saved')} style={styles.actionBtn}>
+                    <Ionicons name="bookmark-outline" size={15} color={theme.color.gold} />
+                    <Text style={styles.actionBtnText}>Saved</Text>
+                  </Pressable>
+                </View>
+
+                <View style={styles.divider} />
+                <Text style={styles.sectionEyebrow}>GALLERY</Text>
+                <View style={styles.sectionTitleRow}>
+                  <Text style={styles.sectionTitle}>Captures</Text>
+                  <Text style={styles.sectionCount}>{mySpots.length}</Text>
+                </View>
+                <Text style={styles.sectionHint}>Tap to open</Text>
+              </View>
+            </View>
+          }
+          // renderItem={({ item, index }) => {
+          //   const rotations = [-2, 1.5, -1];
+          //   const rotate = rotations[index % 3];
+          //   return (
+          //     <Pressable
+          //       style={({ pressed }) => [styles.gridItem, pressed && { opacity: 0.75 }]}
+          //       onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })}
+          //     >
+          //       <View style={[styles.polaroidFrame, { transform: [{ rotate: `${rotate}deg` }] }]}>
+          //         {item.photo_url ? (
+          //           <Image source={{ uri: item.photo_url }} style={styles.polaroidImage} />
+          //         ) : (
+          //           <View style={styles.gridFallback}><Ionicons name="camera-outline" size={16} color={theme.color.muted} /></View>
+          //         )}
+          //         {item.genre && <Text style={styles.polaroidCaption} numberOfLines={1}>{item.genre}</Text>}
+          //       </View>
+          //     </Pressable>
+          //   );
+          // }}
+          renderItem={({ item, index }) => (
+            <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
+          )}
+          ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No captures yet — add one from the Map tab.</Text> : null}
+        />
+        <ImageViewer visible={!!viewerUri} uri={viewerUri} onClose={() => setViewerUri(null)} />
+        <TagInfoModal tag={infoTag} onClose={() => setInfoTag(null)} />
+        {session && (
+          <ShareProfileModal visible={shareVisible} onClose={() => setShareVisible(false)} userId={session.user.id} name={profile?.full_name || 'this traveler'} />
+        )}
+      </ScreenBackground>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.color.dusk },
+  root: { flex: 1, },
   banner: { height: 160, backgroundColor: theme.color.surface },
   bannerScrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 60 },
   signOutIcon: { position: 'absolute', top: 16, right: 16, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
@@ -208,9 +215,9 @@ const styles = StyleSheet.create({
   sectionCount: { fontFamily: theme.font.mono, fontSize: 13, color: theme.color.gold },
   sectionHint: { fontFamily: theme.font.bodyRegular, fontSize: 11, color: theme.color.muted, marginTop: 3 },
   gridItem: { flex: 1 / 3, aspectRatio: 0.85, padding: 4 },
-  polaroidFrame: { flex: 1, backgroundColor: theme.color.cream, borderRadius: 3, padding: 4, paddingBottom: 6, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  polaroidImage: { flex: 1, borderRadius: 1 },
-  polaroidCaption: { fontFamily: theme.font.displayItalic, fontSize: 8, color: theme.color.dusk, textAlign: 'center', marginTop: 3 },
-  gridFallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.surface2 },
+  // polaroidFrame: { flex: 1, backgroundColor: theme.color.cream, borderRadius: 3, padding: 4, paddingBottom: 6, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  // polaroidImage: { flex: 1, borderRadius: 1 },
+  // polaroidCaption: { fontFamily: theme.font.displayItalic, fontSize: 8, color: theme.color.dusk, textAlign: 'center', marginTop: 3 },
+  // gridFallback: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.surface2 },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 24 },
 });

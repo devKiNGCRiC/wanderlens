@@ -1,7 +1,9 @@
+//login.tsx
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert } from 'react-native';
 import { Link } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { ScreenBackground } from '@/components/ScreenBackground';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -16,15 +18,17 @@ export default function Login() {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Welcome back</Text>
-      <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-      <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
-      <Pressable style={styles.button} onPress={handleLogin} disabled={loading}>
-        <Text style={styles.buttonText}>{loading ? 'Logging in…' : 'Log In'}</Text>
-      </Pressable>
-      <Link href="/(auth)/signup" style={styles.link}>Don't have an account? Sign up</Link>
-    </View>
+    <ScreenBackground>
+      <View style={styles.container}>
+        <Text style={styles.title}>Welcome back</Text>
+        <TextInput style={styles.input} placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+        <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
+        <Pressable style={styles.button} onPress={handleLogin} disabled={loading}>
+          <Text style={styles.buttonText}>{loading ? 'Logging in…' : 'Log In'}</Text>
+        </Pressable>
+        <Link href="/(auth)/signup" style={styles.link}>Don't have an account? Sign up</Link>
+      </View>
+    </ScreenBackground>
   );
 }
 

@@ -4,11 +4,14 @@ import { View, Text, TextInput, Pressable, Image, StyleSheet, Alert, ActivityInd
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { decode } from 'base64-arraybuffer';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScreenBackground } from '@/components/ScreenBackground';
 
 const CORE_GENRES = ['Street', 'Landscape', 'Portrait', 'Astro', 'Wildlife', 'Architecture', 'Travel'];
 const MORE_GENRES = ['Macro', 'Aerial', 'Long Exposure', 'Black & White', 'Night', 'Urban', 'Nature', 'Minimalist', 'Documentary', 'Abstract'];
@@ -17,6 +20,7 @@ const TIME_PERIODS = ['Morning', 'Afternoon', 'Evening', 'Night'];
 export default function AddSpot() {
   const router = useRouter();
   const { session } = useAuth();
+  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [bestTime, setBestTime] = useState('');
@@ -94,83 +98,94 @@ export default function AddSpot() {
   }
 
   return (
-    <KeyboardAwareScrollView
-      style={styles.root}
-      contentContainerStyle={styles.container}
-      keyboardShouldPersistTaps="handled"
-      enableOnAndroid
-      extraScrollHeight={28}
-    >
-      <Text style={styles.heading}>Add a spot</Text>
-
-      <Text style={styles.label}>Photo</Text>
-      {image ? (
-        <Image source={{ uri: image.uri }} style={styles.preview} />
-      ) : (
-        <View style={styles.photoButtons}>
-          <Pressable style={styles.photoBtn} onPress={() => pickImage('camera')}><Text style={styles.photoBtnText}>Camera</Text></Pressable>
-          <Pressable style={styles.photoBtn} onPress={() => pickImage('library')}><Text style={styles.photoBtnText}>Library</Text></Pressable>
-        </View>
-      )}
-      {image && <Pressable onPress={() => setImage(null)}><Text style={styles.retake}>Choose a different photo</Text></Pressable>}
-
-      <Text style={styles.label}>Title</Text>
-      <TextInput style={styles.input} placeholder="e.g. Marina Overlook" placeholderTextColor={theme.color.muted} value={title} onChangeText={setTitle} />
-
-      <Text style={styles.label}>Genre</Text>
-      <View style={styles.row}>
-        {[...CORE_GENRES, ...(showMoreGenres ? MORE_GENRES : [])].map((g) => (
-          <Pressable key={g} onPress={() => { setGenre(g); setCustomMode(false); }} style={[styles.chip, genre === g && styles.chipSelected]}>
-            <Text style={[styles.chipText, genre === g && styles.chipTextSelected]}>{g}</Text>
-          </Pressable>
-        ))}
-        {!showMoreGenres && (
-          <Pressable onPress={() => setShowMoreGenres(true)} style={styles.chip}>
-            <Text style={styles.chipText}>More +</Text>
-          </Pressable>
-        )}
-        <Pressable onPress={() => { setCustomMode(true); setGenre(''); }} style={[styles.chip, customMode && styles.chipSelected]}>
-          <Text style={[styles.chipText, customMode && styles.chipTextSelected]}>Custom</Text>
+    <ScreenBackground>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={20} color={theme.color.cream} />
         </Pressable>
+        <Text style={styles.topBarTitle}>Add a Spot</Text>
+        <View style={{ width: 36 }} />
       </View>
-      {customMode && (
-        <TextInput
-          style={[styles.input, { marginTop: 10 }]}
-          placeholder="Type your own genre"
-          placeholderTextColor={theme.color.muted}
-          value={genre ?? ''}
-          onChangeText={setGenre}
-        />
-      )}
+      <KeyboardAwareScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid
+        extraScrollHeight={28}
+      >
 
-      <Text style={styles.label}>Time of day</Text>
-      <View style={styles.row}>
-        {TIME_PERIODS.map((t) => (
-          <Pressable key={t} onPress={() => setTimeOfDay(t)} style={[styles.chip, timeOfDay === t && styles.chipSelected]}>
-            <Text style={[styles.chipText, timeOfDay === t && styles.chipTextSelected]}>{t}</Text>
+        <Text style={styles.label}>Photo</Text>
+        {image ? (
+          <Image source={{ uri: image.uri }} style={styles.preview} />
+        ) : (
+          <View style={styles.photoButtons}>
+            <Pressable style={styles.photoBtn} onPress={() => pickImage('camera')}><Text style={styles.photoBtnText}>Camera</Text></Pressable>
+            <Pressable style={styles.photoBtn} onPress={() => pickImage('library')}><Text style={styles.photoBtnText}>Library</Text></Pressable>
+          </View>
+        )}
+        {image && <Pressable onPress={() => setImage(null)}><Text style={styles.retake}>Choose a different photo</Text></Pressable>}
+
+        <Text style={styles.label}>Title</Text>
+        <TextInput style={styles.input} placeholder="e.g. Marina Overlook" placeholderTextColor={theme.color.muted} value={title} onChangeText={setTitle} />
+
+        <Text style={styles.label}>Genre</Text>
+        <View style={styles.row}>
+          {[...CORE_GENRES, ...(showMoreGenres ? MORE_GENRES : [])].map((g) => (
+            <Pressable key={g} onPress={() => { setGenre(g); setCustomMode(false); }} style={[styles.chip, genre === g && styles.chipSelected]}>
+              <Text style={[styles.chipText, genre === g && styles.chipTextSelected]}>{g}</Text>
+            </Pressable>
+          ))}
+          {!showMoreGenres && (
+            <Pressable onPress={() => setShowMoreGenres(true)} style={styles.chip}>
+              <Text style={styles.chipText}>More +</Text>
+            </Pressable>
+          )}
+          <Pressable onPress={() => { setCustomMode(true); setGenre(''); }} style={[styles.chip, customMode && styles.chipSelected]}>
+            <Text style={[styles.chipText, customMode && styles.chipTextSelected]}>Custom</Text>
           </Pressable>
-        ))}
-      </View>
+        </View>
+        {customMode && (
+          <TextInput
+            style={[styles.input, { marginTop: 10 }]}
+            placeholder="Type your own genre"
+            placeholderTextColor={theme.color.muted}
+            value={genre ?? ''}
+            onChangeText={setGenre}
+          />
+        )}
 
-      <Text style={styles.label}>Best time to shoot</Text>
-      <TextInput style={styles.input} placeholder="e.g. 6:10 AM · golden hour" placeholderTextColor={theme.color.muted} value={bestTime} onChangeText={setBestTime} />
+        <Text style={styles.label}>Time of day</Text>
+        <View style={styles.row}>
+          {TIME_PERIODS.map((t) => (
+            <Pressable key={t} onPress={() => setTimeOfDay(t)} style={[styles.chip, timeOfDay === t && styles.chipSelected]}>
+              <Text style={[styles.chipText, timeOfDay === t && styles.chipTextSelected]}>{t}</Text>
+            </Pressable>
+          ))}
+        </View>
 
-      <Text style={styles.label}>Description (optional)</Text>
-      <TextInput style={[styles.input, styles.multiline]} placeholder="Any tips for other photographers?" placeholderTextColor={theme.color.muted} value={description} onChangeText={setDescription} multiline />
+        <Text style={styles.label}>Best time to shoot</Text>
+        <TextInput style={styles.input} placeholder="e.g. 6:10 AM · golden hour" placeholderTextColor={theme.color.muted} value={bestTime} onChangeText={setBestTime} />
 
-      <Text style={styles.locationNote}>Uses your current location as the spot's pin.</Text>
+        <Text style={styles.label}>Description (optional)</Text>
+        <TextInput style={[styles.input, styles.multiline]} placeholder="Any tips for other photographers?" placeholderTextColor={theme.color.muted} value={description} onChangeText={setDescription} multiline />
 
-      <Pressable style={styles.submit} onPress={handleSubmit} disabled={saving}>
-        {saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.submitText}>Save spot</Text>}
-      </Pressable>
-    </KeyboardAwareScrollView>
+        <Text style={styles.locationNote}>Uses your current location as the spot's pin.</Text>
+
+        <Pressable style={styles.submit} onPress={handleSubmit} disabled={saving}>
+          {saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.submitText}>Save spot</Text>}
+        </Pressable>
+      </KeyboardAwareScrollView>
+    </ScreenBackground>  
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.color.dusk },
   container: { padding: 24, paddingBottom: 60 },
-  heading: { fontFamily: theme.font.display, fontSize: 22, color: theme.color.cream, marginBottom: 20 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  topBarTitle: { fontFamily: theme.font.display, fontSize: 28, color: theme.color.cream },
   label: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted, marginTop: 18, marginBottom: 8 },
   input: { backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, padding: 12, color: theme.color.cream, fontFamily: theme.font.bodyRegular, fontSize: 15, borderWidth: 1, borderColor: theme.color.surface2 },
   multiline: { height: 90, textAlignVertical: 'top' },
