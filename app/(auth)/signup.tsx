@@ -18,13 +18,24 @@ export default function SignUp() {
 
   useEffect(() => {
     const clean = username.trim().toLowerCase();
-    if (clean.length < 3) { setUsernameStatus('idle'); return; }
+    if (clean.length < 3) {
+      setUsernameStatus('idle');
+      return;
+    }
     setUsernameStatus('checking');
+    let cancelled = false;
+
     const timeout = setTimeout(async () => {
       const { data } = await supabase.from('profiles').select('id').eq('username', clean).maybeSingle();
-      setUsernameStatus(data ? 'taken' : 'available');
+      if (!cancelled) {
+        setUsernameStatus(data ? 'taken' : 'available');
+      }
     }, 500);
-    return () => clearTimeout(timeout);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, [username]);
 
   async function handleSignUp() {
