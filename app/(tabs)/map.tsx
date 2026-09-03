@@ -141,13 +141,13 @@ export default function MapScreen() {
           </View>
 
           {selectedCluster && selectedCluster.length > 1 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.clusterStrip} contentContainerStyle={{ gap: 8 }}>
+            <View style={styles.clusterStrip}>
               {selectedCluster.map((s, i) => (
                 <Pressable key={s.id} onPress={() => setFocusedIndex(i)} style={[styles.clusterThumbWrap, i === focusedIndex && styles.clusterThumbActive]}>
                   {s.photo_url ? <Image source={{ uri: s.photo_url }} style={styles.clusterThumb} /> : <View style={[styles.clusterThumb, { backgroundColor: theme.color.surface2 }]} />}
                 </Pressable>
               ))}
-            </ScrollView>
+            </View>
           )}
 
           <Text style={styles.cardTitle}>{selected.title}</Text>
@@ -198,9 +198,9 @@ const styles = StyleSheet.create({
   clusterCounter: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.gold, marginBottom: 8, textAlign: 'center' },
   imageWrap: { position: 'relative', marginBottom: 10 },
   navArrow: { position: 'absolute', top: '50%', marginTop: -16, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(20,23,31,0.6)', alignItems: 'center', justifyContent: 'center' },
-  clusterStrip: { height: 54, marginBottom: 10 },
-  clusterThumbWrap: { width: 44, height: 44, borderRadius: 8, overflow: 'hidden', opacity: 0.55 },
-  clusterThumbActive: { opacity: 1, borderWidth: 2, borderColor: theme.color.gold },
+  clusterStrip: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  clusterThumbWrap: { width: 46, height: 46, borderRadius: 8, overflow: 'hidden', opacity: 0.9, borderWidth: 2, borderColor: theme.color.surface2 },
+  clusterThumbActive: { opacity: 1, borderColor: theme.color.gold },
   clusterThumb: { width: '100%', height: '100%' },
   cardTitle: { fontFamily: theme.font.display, fontSize: 16, color: theme.color.cream },
   cardLocation: { fontFamily: theme.font.bodyRegular, fontSize: 11.5, color: theme.color.muted, marginTop: 3 },

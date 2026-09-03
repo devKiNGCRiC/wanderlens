@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet, FlatList, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
+import { ActionSheet } from '@/components/ActionSheet';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
 import { flagEmoji, COUNTRIES } from '@/constants/countries';
@@ -32,6 +33,10 @@ export default function PublicProfile() {
   const [conn, setConn] = useState<ConnState>({ id: null, status: 'none', isRequester: false });
   const [loading, setLoading] = useState(true);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const [messaging, setMessaging] = useState(false);
+  const [myBlocked, setMyBlocked] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [reportSheetVisible, setReportSheetVisible] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -49,6 +54,9 @@ export default function PublicProfile() {
       const { data: connData } = await supabase.rpc('get_connection_status', { other_id: id }).maybeSingle() as { data: ConnRow | null };
       if (connData) setConn({ id: connData.id, status: connData.status as any, isRequester: connData.is_requester });
       else setConn({ id: null, status: 'none', isRequester: false });
+
+      const { data: blockRow } = await supabase.from('blocked_users').select('id').eq('blocker_id', session.user.id).eq('blocked_id', id).maybeSingle();
+      setMyBlocked(!!blockRow);
     }
     setLoading(false);
   }, [id, session]);
@@ -74,6 +82,32 @@ export default function PublicProfile() {
     if (!conn.id) return;
     await supabase.from('connections').delete().eq('id', conn.id);
     setConn({ id: null, status: 'none', isRequester: false });
+  }
+  async function messageUser() {
+    if (!session || !id || messaging) return;
+    setMessaging(true);
+    const { data, error } = await supabase.rpc('get_or_create_direct_conversation', { other_user_id: id });
+    setMessaging(false);
+    if (!error && data) router.push({ pathname: '/chat/[id]', params: { id: data as string } });
+  }
+  function toggleBlock() {
+    if (!session || !id) return;
+    if (myBlocked) {
+      supabase.from('blocked_users').delete().eq('blocker_id', session.user.id).eq('blocked_id', id).then(() => setMyBlocked(false));
+      return;
+    }
+    Alert.alert(`Block ${profile?.username || profile?.full_name || 'this person'}?`, "They won't be able to message you.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Block', style: 'destructive', onPress: async () => { await supabase.from('blocked_users').insert({ blocker_id: session.user.id, blocked_id: id }); setMyBlocked(true); } },
+    ]);
+  }
+  async function submitReport(reason: string) {
+    if (!id) return;
+    await supabase.rpc('report_content', { p_target_type: 'user', p_target_id: id, p_reason: reason });
+    Alert.alert('Reported', "Thanks — we'll review this.");
+  }
+  function openMenu() {
+    setMenuVisible(true);
   }
 
   if (loading || !profile) {
@@ -103,6 +137,9 @@ export default function PublicProfile() {
               {profile.banner_url ? <Image source={{ uri: profile.banner_url }} style={StyleSheet.absoluteFill} /> : <LinearGradient colors={['#C9683E', '#4B3F72', 'transparent']} style={StyleSheet.absoluteFill} />}
               <Pressable onPress={() => router.back()} style={[styles.backBtn, { top: insets.top + 10 }]}>
                 <Ionicons name="chevron-back" size={20} color={theme.color.cream} />
+              </Pressable>
+              <Pressable onPress={openMenu} style={[styles.menuBtn, { top: insets.top + 10 }]}>
+                <Ionicons name="ellipsis-horizontal" size={20} color={theme.color.cream} />
               </Pressable>
             </View>
             <View style={styles.header}>
@@ -150,6 +187,19 @@ export default function PublicProfile() {
                 </View>
               )}
 
+              <Pressable onPress={messageUser} disabled={messaging || myBlocked} style={[styles.messageBtn, myBlocked && styles.messageBtnDisabled]}>
+                {messaging ? (
+                  <ActivityIndicator size="small" color={theme.color.gold} />
+                ) : myBlocked ? (
+                  <Text style={styles.messageBtnText}>You blocked this person</Text>
+                ) : (
+                  <>
+                    <Ionicons name="chatbubble-outline" size={15} color={theme.color.gold} />
+                    <Text style={styles.messageBtnText}>Message</Text>
+                  </>
+                )}
+              </Pressable>
+
               <View style={styles.divider} />
               <Text style={styles.sectionTitle}>Captures ({spots.length})</Text>
             </View>
@@ -160,6 +210,28 @@ export default function PublicProfile() {
         )}
       />
       <ImageViewer visible={!!viewerUri} uri={viewerUri} onClose={() => setViewerUri(null)} />
+
+      <ActionSheet
+        visible={menuVisible}
+        onClose={() => setMenuVisible(false)}
+        title={profile.username || profile.full_name || 'traveler'}
+        options={[
+          { key: 'block', label: myBlocked ? 'Unblock' : 'Block', icon: myBlocked ? 'lock-open-outline' : 'lock-closed-outline', destructive: !myBlocked, onPress: toggleBlock },
+          { key: 'report', label: 'Report', icon: 'flag-outline', destructive: true, onPress: () => setReportSheetVisible(true) },
+        ]}
+      />
+
+      <ActionSheet
+        visible={reportSheetVisible}
+        onClose={() => setReportSheetVisible(false)}
+        title="Report this person?"
+        options={[
+          { key: 'spam', label: 'Spam', onPress: () => submitReport('spam') },
+          { key: 'harassment', label: 'Harassment', onPress: () => submitReport('harassment') },
+          { key: 'inappropriate', label: 'Inappropriate content', onPress: () => submitReport('inappropriate_content') },
+          { key: 'other', label: 'Other', onPress: () => submitReport('other') },
+        ]}
+      />
     </ScreenBackground>
   );
 }
@@ -168,6 +240,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.dusk },
   banner: { height: 140, backgroundColor: theme.color.surface },
   backBtn: { position: 'absolute', left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
+  menuBtn: { position: 'absolute', right: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   header: { padding: 24, paddingTop: 0 },
   avatarRing: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', marginTop: -48, backgroundColor: theme.color.dusk },
   avatar: { width: 84, height: 84, borderRadius: 42, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
@@ -192,6 +265,9 @@ const styles = StyleSheet.create({
   connectedBtn: { flexDirection: 'row', gap: 6, borderWidth: 1, borderColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   connectedBtnText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.gold },
   removeBtn: { width: 44, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, alignItems: 'center', justifyContent: 'center' },
+  messageBtn: { flexDirection: 'row', gap: 7, marginTop: 10, borderWidth: 1, borderColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+  messageBtnDisabled: { borderColor: theme.color.surface2 },
+  messageBtnText: { fontFamily: theme.font.body, fontSize: 13.5, color: theme.color.gold },
   respondRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
   divider: { height: 1, backgroundColor: theme.color.surface2, marginTop: 24, marginBottom: 14 },
   sectionTitle: { fontFamily: theme.font.display, fontSize: 16, color: theme.color.cream },

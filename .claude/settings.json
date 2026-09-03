@@ -1,5 +1,28 @@
 {
   "enabledPlugins": {
     "expo@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint)",
+      "Bash(npm start)",
+      "Bash(npm ls:*)",
+      "Bash(npx expo config:*)",
+      "Bash(npx expo install --check)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(npx expo prebuild:*)",
+      "Bash(eas build:*)",
+      "Bash(eas submit:*)",
+      "Bash(git push:*)"
+    ]
   }
 }

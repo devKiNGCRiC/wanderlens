@@ -3,8 +3,11 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { theme } from '@/constants/theme';
+import { useChat } from '@/context/ChatProvider';
 
 export default function TabLayout() {
+  const { unreadCount } = useChat();
+
   return (
     <Tabs
       screenOptions={{
@@ -36,6 +39,15 @@ export default function TabLayout() {
         options={{
           title: 'Connect',
           tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: 'Chat',
+          tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-outline" size={size} color={color} />,
+          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: theme.color.ember, color: theme.color.cream, fontFamily: theme.font.body, fontSize: 10 },
         }}
       />
       <Tabs.Screen
