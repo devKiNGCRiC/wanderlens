@@ -9,9 +9,12 @@ type Props = {
   onClose: () => void;
   onReply: () => void;
   onReact: (emoji: string) => void;
+  showSaveOptions?: boolean;
+  onSavePhoto?: () => void;
+  onSaveAsPolaroid?: () => void;
 };
 
-export function MessageActionSheet({ visible, onClose, onReply, onReact }: Props) {
+export function MessageActionSheet({ visible, onClose, onReply, onReact, showSaveOptions, onSavePhoto, onSaveAsPolaroid }: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
@@ -27,6 +30,18 @@ export function MessageActionSheet({ visible, onClose, onReply, onReact }: Props
             <Ionicons name="arrow-undo-outline" size={18} color={theme.color.cream} />
             <Text style={styles.rowText}>Reply</Text>
           </Pressable>
+          {showSaveOptions && onSavePhoto && (
+            <Pressable style={styles.row} onPress={() => { onSavePhoto(); onClose(); }}>
+              <Ionicons name="download-outline" size={18} color={theme.color.cream} />
+              <Text style={styles.rowText}>Save photo</Text>
+            </Pressable>
+          )}
+          {showSaveOptions && onSaveAsPolaroid && (
+            <Pressable style={styles.row} onPress={() => { onSaveAsPolaroid(); onClose(); }}>
+              <Ionicons name="images-outline" size={18} color={theme.color.cream} />
+              <Text style={styles.rowText}>Save as polaroid</Text>
+            </Pressable>
+          )}
         </Pressable>
       </Pressable>
     </Modal>

@@ -42,7 +42,15 @@
         }
       ],
       "expo-font",
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Wanderlens to access your photos.",
+          "savePhotosPermission": "Allow Wanderlens to save photos to your gallery.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

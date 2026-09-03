@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, createRef, type RefObject } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,14 +14,15 @@ import { Avatar } from '@/components/Avatar';
 import { ActionSheet } from '@/components/ActionSheet';
 import { ImageViewer } from '@/components/ImageViewer';
 import { MessageBubble, type MessageItem } from '@/components/chat/MessageBubble';
-import { MessageComposer } from '@/components/chat/MessageComposer';
+import { MessageComposer, type SendMode } from '@/components/chat/MessageComposer';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
 import { RequestBanner } from '@/components/chat/RequestBanner';
 import { generateClientId } from '@/lib/chat';
+import { saveRemoteImageToGallery, saveViewAsImage } from '@/lib/media';
 
 const MEDIA_BUCKET = 'message-media';
 
-type LocalMessage = MessageItem & { client_generated_id?: string | null; _base64?: string };
+type LocalMessage = MessageItem & { client_generated_id?: string | null; _base64?: string; _base64s?: string[] };
 type OtherUser = { id: string; username: string | null; full_name: string | null; avatar_url: string | null };
 type MemberStatus = 'accepted' | 'request' | 'left';
 
@@ -49,8 +50,13 @@ export default function ChatThread() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportSheetVisible, setReportSheetVisible] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const [pickedAssets, setPickedAssets] = useState<{ uri: string; base64: string }[]>([]);
+  const [pickingImages, setPickingImages] = useState(false);
+  const [sendMode, setSendMode] = useState<SendMode>('individual');
 
   const hasMoreRef = useRef(true);
+  const polaroidRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
+  const galleryRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
   const channelRef = useRef<RealtimeChannel | null>(null);
   const lastTypingSentRef = useRef(0);
   const otherTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -76,13 +82,43 @@ export default function ChatThread() {
   }, [id, myUserId]);
 
   async function resolveMediaUrls(rows: LocalMessage[]): Promise<LocalMessage[]> {
-    const needsResolve = rows.filter((r) => r.message_type === 'image' && r.media_path && !r.media_url && !r.local_uri);
-    if (needsResolve.length === 0) return rows;
-    const results = await Promise.all(
-      needsResolve.map((r) => supabase.storage.from(MEDIA_BUCKET).createSignedUrl(r.media_path as string, 3600))
-    );
-    const urlMap = new Map(needsResolve.map((r, i) => [r.id, results[i].data?.signedUrl]));
-    return rows.map((r) => (urlMap.has(r.id) ? { ...r, media_url: urlMap.get(r.id) } : r));
+    type Target = { path: string; rowId: string; attIndex?: number };
+    const targets: Target[] = [];
+    rows.forEach((r) => {
+      if (r.message_type === 'image' && r.media_path && !r.media_url && !r.local_uri) {
+        targets.push({ path: r.media_path, rowId: r.id });
+      }
+      if (r.message_type === 'gallery') {
+        (r.attachments ?? []).forEach((a, i) => {
+          if (a.media_path && !a.media_url && !a.local_uri) targets.push({ path: a.media_path, rowId: r.id, attIndex: i });
+        });
+      }
+    });
+    if (targets.length === 0) return rows;
+
+    const results = await Promise.all(targets.map((t) => supabase.storage.from(MEDIA_BUCKET).createSignedUrl(t.path, 3600)));
+
+    return rows.map((r) => {
+      const single = targets.findIndex((t) => t.rowId === r.id && t.attIndex === undefined);
+      const attUpdates = targets
+        .map((t, i) => ({ t, url: results[i].data?.signedUrl }))
+        .filter(({ t }) => t.rowId === r.id && t.attIndex !== undefined);
+
+      if (single === -1 && attUpdates.length === 0) return r;
+
+      let next = r;
+      if (single !== -1 && results[single].data?.signedUrl) {
+        next = { ...next, media_url: results[single].data.signedUrl };
+      }
+      if (attUpdates.length > 0 && next.attachments) {
+        const atts = [...next.attachments];
+        attUpdates.forEach(({ t, url }) => {
+          if (url) atts[t.attIndex as number] = { ...atts[t.attIndex as number], media_url: url };
+        });
+        next = { ...next, attachments: atts };
+      }
+      return next;
+    });
   }
 
   const loadMessages = useCallback(async () => {
@@ -110,7 +146,20 @@ export default function ChatThread() {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
           async (payload) => {
-            const raw = payload.new as LocalMessage;
+            let raw = payload.new as LocalMessage;
+            if (raw.message_type === 'gallery') {
+              // The messages row broadcasts as soon as it's inserted, which can
+              // land slightly before the sender's follow-up attachments insert
+              // commits — one short retry closes that race in practice.
+              const fetchAttachments = () =>
+                supabase.from('message_attachments').select('id, media_path').eq('message_id', raw.id).order('position');
+              let atts = (await fetchAttachments()).data;
+              if (!atts || atts.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 600));
+                atts = (await fetchAttachments()).data;
+              }
+              raw = { ...raw, attachments: atts ?? [] };
+            }
             const [row] = await resolveMediaUrls([raw]);
             setMessages((prev) => {
               if (prev.some((m) => m.id === row.id)) return prev;
@@ -232,22 +281,58 @@ export default function ChatThread() {
     }
   }
 
-  async function pickAndSendImage() {
+  async function pickImages() {
     if (!session || !id) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to send a photo.');
-      return;
+    // Covers the whole flow — tapping the icon gives immediate feedback,
+    // and it bridges the gap right after the native picker closes while
+    // base64 encoding for the last photo(s) may still be finishing.
+    setPickingImages(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow photo library access to send a photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.6, base64: true, mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 10 });
+      if (result.canceled) return;
+      const assets = result.assets.filter((a) => a.base64).map((a) => ({ uri: a.uri, base64: a.base64 as string }));
+      setPickedAssets((prev) => [...prev, ...assets]);
+    } finally {
+      setPickingImages(false);
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.6, base64: true, mediaTypes: ['images'] });
-    if (result.canceled || !result.assets[0]?.base64) return;
-    sendImageMessage({ uri: result.assets[0].uri, base64: result.assets[0].base64 });
   }
 
-  async function sendImageMessage(asset: { uri: string; base64: string }, retryOf?: LocalMessage) {
+  function removePickedAsset(index: number) {
+    setPickedAssets((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleSend() {
+    if (pickedAssets.length > 0) {
+      const assets = pickedAssets;
+      const caption = text.trim();
+      const mode = sendMode;
+      setPickedAssets([]);
+      setText('');
+      setSendMode('individual');
+      if (assets.length >= 2 && (mode === 'collage' || mode === 'grid')) {
+        await sendGalleryMessage(assets, caption, undefined, mode);
+      } else {
+        for (let i = 0; i < assets.length; i++) {
+          // Sequential, not parallel — keeps send order matching selection order
+          // in the message list, and each upload is a decent chunk of work.
+          await sendImageMessage(assets[i], undefined, i === assets.length - 1 ? caption : undefined);
+        }
+      }
+    } else {
+      sendMessage();
+    }
+  }
+
+  async function sendImageMessage(asset: { uri: string; base64: string }, retryOf?: LocalMessage, caption?: string) {
     if (!session || !id) return;
     const clientId = retryOf?.client_generated_id ?? generateClientId();
     const tempId = retryOf?.id ?? `temp-${clientId}`;
+    const captionText = retryOf ? retryOf.content : (caption || '');
 
     if (retryOf) {
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m)));
@@ -255,7 +340,7 @@ export default function ChatThread() {
       const temp: LocalMessage = {
         id: tempId,
         sender_id: session.user.id,
-        content: '',
+        content: captionText,
         created_at: new Date().toISOString(),
         client_generated_id: clientId,
         pending: true,
@@ -275,7 +360,7 @@ export default function ChatThread() {
 
     const { data, error } = await supabase
       .from('messages')
-      .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'image', media_path: path, client_generated_id: clientId })
+      .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'image', media_path: path, content: captionText || null, client_generated_id: clientId })
       .select()
       .single();
 
@@ -287,9 +372,73 @@ export default function ChatThread() {
     }
   }
 
+  async function sendGalleryMessage(assets: { uri: string; base64: string }[], caption: string, retryOf?: LocalMessage, layout?: 'collage' | 'grid') {
+    if (!session || !id) return;
+    const clientId = retryOf?.client_generated_id ?? generateClientId();
+    const tempId = retryOf?.id ?? `temp-${clientId}`;
+    const captionText = retryOf ? retryOf.content : (caption || '');
+    const galleryLayout = retryOf ? (retryOf.gallery_layout ?? 'collage') : (layout ?? 'collage');
+
+    if (retryOf) {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m)));
+    } else {
+      const temp: LocalMessage = {
+        id: tempId,
+        sender_id: session.user.id,
+        content: captionText,
+        created_at: new Date().toISOString(),
+        client_generated_id: clientId,
+        pending: true,
+        message_type: 'gallery',
+        gallery_layout: galleryLayout,
+        attachments: assets.map((a) => ({ local_uri: a.uri })),
+        _base64s: assets.map((a) => a.base64),
+      };
+      setMessages((prev) => [temp, ...prev]);
+    }
+
+    const uploadAssets = retryOf
+      ? (retryOf._base64s ?? []).map((base64, i) => ({ base64, uri: retryOf.attachments?.[i]?.local_uri ?? '' }))
+      : assets;
+
+    try {
+      const paths = await Promise.all(
+        uploadAssets.map(async (a, i) => {
+          const path = `${id}/${session.user.id}_${Date.now()}_${i}.jpg`;
+          const { error } = await supabase.storage.from(MEDIA_BUCKET).upload(path, decode(a.base64), { contentType: 'image/jpeg' });
+          if (error) throw error;
+          return path;
+        })
+      );
+
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'gallery', gallery_layout: galleryLayout, content: captionText || null, client_generated_id: clientId })
+        .select()
+        .single();
+      if (error || !data) throw error ?? new Error('insert failed');
+
+      const { error: attError } = await supabase
+        .from('message_attachments')
+        .insert(paths.map((media_path, position) => ({ message_id: data.id, media_path, position })));
+      if (attError) throw attError;
+
+      setMessages((prev) => prev.map((m) => {
+        if (m.id !== tempId) return m;
+        const mergedAttachments = paths.map((media_path, i) => ({ ...(m.attachments?.[i] ?? {}), media_path }));
+        return { ...m, ...data, pending: false, attachments: mergedAttachments };
+      }));
+      if (myStatus === 'request') setMyStatus('accepted');
+    } catch {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)));
+    }
+  }
+
   function handleRetry(item: LocalMessage) {
     if (item.message_type === 'image') {
       if (item._base64 && item.local_uri) sendImageMessage({ uri: item.local_uri, base64: item._base64 }, item);
+    } else if (item.message_type === 'gallery') {
+      if (item._base64s?.length) sendGalleryMessage([], '', item);
     } else {
       sendMessage(item);
     }
@@ -348,6 +497,49 @@ export default function ChatThread() {
     setMenuVisible(true);
   }
 
+  function getPolaroidRef(id: string): RefObject<View | null> {
+    if (!polaroidRefsMap.current.has(id)) polaroidRefsMap.current.set(id, createRef<View>());
+    return polaroidRefsMap.current.get(id)!;
+  }
+
+  function getGalleryRef(id: string): RefObject<View | null> {
+    if (!galleryRefsMap.current.has(id)) galleryRefsMap.current.set(id, createRef<View>());
+    return galleryRefsMap.current.get(id)!;
+  }
+
+  async function handleSaveGallery(item: LocalMessage) {
+    const ref = galleryRefsMap.current.get(item.id);
+    if (!ref) return;
+    try {
+      const ok = await saveViewAsImage(ref);
+      Alert.alert(ok ? 'Saved' : 'Permission needed', ok ? 'Saved to your gallery.' : 'Allow photo access to save images.');
+    } catch {
+      Alert.alert('Could not save', 'Something went wrong saving this photo.');
+    }
+  }
+
+  async function handleSavePhoto(item: LocalMessage) {
+    const uri = item.local_uri || item.media_url;
+    if (!uri) return;
+    try {
+      const ok = await saveRemoteImageToGallery(uri);
+      Alert.alert(ok ? 'Saved' : 'Permission needed', ok ? 'Photo saved to your gallery.' : 'Allow photo access to save images.');
+    } catch {
+      Alert.alert('Could not save', 'Something went wrong saving this photo.');
+    }
+  }
+
+  async function handleSaveAsPolaroid(item: LocalMessage) {
+    const ref = polaroidRefsMap.current.get(item.id);
+    if (!ref) return;
+    try {
+      const ok = await saveViewAsImage(ref);
+      Alert.alert(ok ? 'Saved' : 'Permission needed', ok ? 'Polaroid saved to your gallery.' : 'Allow photo access to save images.');
+    } catch {
+      Alert.alert('Could not save', 'Something went wrong saving this photo.');
+    }
+  }
+
   const name = otherUser?.username || otherUser?.full_name || 'traveler';
   const lastMineIndex = messages.findIndex((m) => m.sender_id === myUserId);
   const lastMineSeen = lastMineIndex === 0 && !!otherLastReadAt && !!messages[0] && otherLastReadAt >= messages[0].created_at;
@@ -396,6 +588,9 @@ export default function ChatThread() {
                   onLongPress={() => { if (!item.pending) setActionSheetFor(item); }}
                   onToggleReaction={(emoji) => toggleReaction(item, emoji)}
                   onPressImage={setViewerUri}
+                  onSaveGallery={item.message_type === 'gallery' ? () => handleSaveGallery(item) : undefined}
+                  polaroidRef={item.message_type === 'image' ? getPolaroidRef(item.id) : undefined}
+                  galleryRef={item.message_type === 'gallery' ? getGalleryRef(item.id) : undefined}
                 />
                 {index === 0 && item.sender_id === myUserId && lastMineSeen && (
                   <Text style={styles.seenText}>Seen</Text>
@@ -429,8 +624,13 @@ export default function ChatThread() {
           <MessageComposer
             value={text}
             onChangeText={handleChangeText}
-            onSend={() => sendMessage()}
-            onPickImage={pickAndSendImage}
+            onSend={handleSend}
+            onPickImage={pickImages}
+            pickingImages={pickingImages}
+            pickedAssets={pickedAssets}
+            onRemoveAsset={removePickedAsset}
+            sendMode={sendMode}
+            onChangeSendMode={setSendMode}
             paddingBottom={Math.max(insets.bottom, 16) + 16}
           />
         )}
@@ -441,6 +641,9 @@ export default function ChatThread() {
         onClose={() => setActionSheetFor(null)}
         onReply={() => actionSheetFor && setReplyingTo(actionSheetFor)}
         onReact={(emoji) => actionSheetFor && toggleReaction(actionSheetFor, emoji)}
+        showSaveOptions={actionSheetFor?.message_type === 'image'}
+        onSavePhoto={() => actionSheetFor && handleSavePhoto(actionSheetFor)}
+        onSaveAsPolaroid={() => actionSheetFor && handleSaveAsPolaroid(actionSheetFor)}
       />
 
       <ActionSheet
