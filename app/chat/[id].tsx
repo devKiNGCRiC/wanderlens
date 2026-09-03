@@ -25,6 +25,7 @@ const MEDIA_BUCKET = 'message-media';
 type LocalMessage = MessageItem & { client_generated_id?: string | null; _base64?: string; _base64s?: string[] };
 type OtherUser = { id: string; username: string | null; full_name: string | null; avatar_url: string | null };
 type MemberStatus = 'accepted' | 'request' | 'left';
+type ConversationInfo = { is_group: boolean; name: string | null; avatar_url: string | null; description: string | null; member_count: number; my_role: 'member' | 'admin' | null };
 
 const PAGE_SIZE = 30;
 const TYPING_TIMEOUT_MS = 3000;
@@ -38,6 +39,7 @@ export default function ChatThread() {
 
   const [otherUser, setOtherUser] = useState<OtherUser | null>(null);
   const [otherLastReadAt, setOtherLastReadAt] = useState<string | null>(null);
+  const [conversationInfo, setConversationInfo] = useState<ConversationInfo | null>(null);
   const [myStatus, setMyStatus] = useState<MemberStatus>('accepted');
   const [myBlocked, setMyBlocked] = useState(false);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -67,6 +69,10 @@ export default function ChatThread() {
 
   const loadMembers = useCallback(async () => {
     if (!id || !myUserId) return;
+    const { data: infoData } = await supabase.rpc('get_conversation_info', { p_conversation_id: id }).maybeSingle();
+    const info = infoData as ConversationInfo | null;
+    if (info) setConversationInfo(info);
+
     const { data } = await supabase
       .from('conversation_members')
       .select('user_id, status, last_read_at, profiles:user_id(id, username, full_name, avatar_url)')
@@ -74,13 +80,16 @@ export default function ChatThread() {
     if (!data) return;
     const rows = data as unknown as { user_id: string; status: MemberStatus; last_read_at: string; profiles: OtherUser | null }[];
     const mine = rows.find((m) => m.user_id === myUserId);
-    const other = rows.find((m) => m.user_id !== myUserId);
     if (mine) setMyStatus(mine.status);
-    if (other?.profiles) {
-      setOtherUser(other.profiles);
-      setOtherLastReadAt(other.last_read_at);
-      const { data: blockRow } = await supabase.from('blocked_users').select('id').eq('blocker_id', myUserId).eq('blocked_id', other.profiles.id).maybeSingle();
-      setMyBlocked(!!blockRow);
+
+    if (!info?.is_group) {
+      const other = rows.find((m) => m.user_id !== myUserId);
+      if (other?.profiles) {
+        setOtherUser(other.profiles);
+        setOtherLastReadAt(other.last_read_at);
+        const { data: blockRow } = await supabase.from('blocked_users').select('id').eq('blocker_id', myUserId).eq('blocked_id', other.profiles.id).maybeSingle();
+        setMyBlocked(!!blockRow);
+      }
     }
   }, [id, myUserId]);
 
@@ -497,6 +506,16 @@ export default function ChatThread() {
       { text: 'Delete', style: 'destructive', onPress: async () => { await supabase.rpc('delete_conversation', { p_conversation_id: id }); router.back(); } },
     ]);
   }
+  function handleLeaveGroup() {
+    Alert.alert('Leave this group?', 'You can only rejoin if an admin adds you back.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Leave', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.rpc('leave_group_conversation', { p_conversation_id: id });
+        if (error) { Alert.alert('Could not leave', error.message); return; }
+        router.back();
+      } },
+    ]);
+  }
   function toggleBlock() {
     if (!myUserId || !otherUser) return;
     if (myBlocked) {
@@ -514,7 +533,7 @@ export default function ChatThread() {
     Alert.alert('Reported', "Thanks — we'll review this.");
   }
   function openMenu() {
-    if (!otherUser) return;
+    if (!conversationInfo?.is_group && !otherUser) return;
     setMenuVisible(true);
   }
 
@@ -578,7 +597,8 @@ export default function ChatThread() {
     }
   }
 
-  const name = otherUser?.username || otherUser?.full_name || 'traveler';
+  const isGroup = !!conversationInfo?.is_group;
+  const name = isGroup ? (conversationInfo?.name || 'Group') : (otherUser?.username || otherUser?.full_name || 'traveler');
   const lastMineIndex = messages.findIndex((m) => m.sender_id === myUserId);
   const lastMineSeen = lastMineIndex === 0 && !!otherLastReadAt && !!messages[0] && otherLastReadAt >= messages[0].created_at;
 
@@ -593,11 +613,22 @@ export default function ChatThread() {
         </Pressable>
         <Pressable
           style={styles.headerInfo}
-          onPress={() => otherUser && router.push({ pathname: '/user/[id]', params: { id: otherUser.id } })}>
-          <Avatar uri={otherUser?.avatar_url} label={name} size={34} />
+          onPress={() => {
+            if (isGroup) router.push({ pathname: '/group/[id]', params: { id: id as string } });
+            else if (otherUser) router.push({ pathname: '/user/[id]', params: { id: otherUser.id } });
+          }}>
+          {isGroup ? (
+            <View style={styles.groupHeaderAvatar}><Ionicons name="people" size={17} color={theme.color.dusk} /></View>
+          ) : (
+            <Avatar uri={otherUser?.avatar_url} label={name} size={34} />
+          )}
           <View style={{ flex: 1 }}>
             <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
-            {otherTyping && <Text style={styles.typingText}>typing…</Text>}
+            {otherTyping ? (
+              <Text style={styles.typingText}>typing…</Text>
+            ) : isGroup ? (
+              <Text style={styles.memberCountText}>{conversationInfo?.member_count ?? 0} members</Text>
+            ) : null}
           </View>
         </Pressable>
         <Pressable onPress={openMenu} style={styles.menuBtn}>
@@ -690,7 +721,11 @@ export default function ChatThread() {
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
         title={name}
-        options={[
+        options={isGroup ? [
+          { key: 'clear', label: 'Clear chat', icon: 'brush-outline', onPress: handleClear },
+          { key: 'info', label: 'Group info', icon: 'information-circle-outline', onPress: () => router.push({ pathname: '/group/[id]', params: { id: id as string } }) },
+          { key: 'leave', label: 'Leave group', icon: 'exit-outline', destructive: true, onPress: handleLeaveGroup },
+        ] : [
           { key: 'clear', label: 'Clear chat', icon: 'brush-outline', onPress: handleClear },
           { key: 'delete', label: 'Delete chat', icon: 'trash-outline', destructive: true, onPress: handleDelete },
           { key: 'block', label: myBlocked ? 'Unblock' : 'Block', icon: myBlocked ? 'lock-open-outline' : 'lock-closed-outline', destructive: !myBlocked, onPress: toggleBlock },
@@ -732,6 +767,8 @@ const styles = StyleSheet.create({
   headerInfo: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   headerName: { fontFamily: theme.font.body, fontSize: 15, color: theme.color.cream },
   typingText: { fontFamily: theme.font.bodyRegular, fontSize: 11, color: theme.color.gold, marginTop: 1 },
+  memberCountText: { fontFamily: theme.font.bodyRegular, fontSize: 11, color: theme.color.muted, marginTop: 1 },
+  groupHeaderAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
   menuBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: 14, paddingTop: 14, flexGrow: 1, justifyContent: 'flex-end' },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center' },

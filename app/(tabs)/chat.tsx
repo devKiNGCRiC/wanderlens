@@ -7,6 +7,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { useChat } from '@/context/ChatProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
+import { ActionSheet } from '@/components/ActionSheet';
 import { ConversationRow, type ConversationSummary } from '@/components/chat/ConversationRow';
 import { ConversationOptionsSheet, type ConversationAction } from '@/components/chat/ConversationOptionsSheet';
 
@@ -22,6 +23,7 @@ export default function ChatListScreen() {
   const [requests, setRequests] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [optionsFor, setOptionsFor] = useState<ConversationSummary | null>(null);
+  const [composeMenuVisible, setComposeMenuVisible] = useState(false);
 
   const load = useCallback(async () => {
     if (!session) return;
@@ -91,7 +93,7 @@ export default function ChatListScreen() {
             <Pressable onPress={() => router.push('/chat/archived')} style={styles.iconBtn}>
               <Ionicons name="archive-outline" size={18} color={theme.color.gold} />
             </Pressable>
-            <Pressable onPress={() => router.push('/new-message')} style={styles.iconBtn}>
+            <Pressable onPress={() => setComposeMenuVisible(true)} style={styles.iconBtn}>
               <Ionicons name="create-outline" size={20} color={theme.color.gold} />
             </Pressable>
           </View>
@@ -159,6 +161,15 @@ export default function ChatListScreen() {
           isArchived={optionsFor.is_archived}
         />
       )}
+
+      <ActionSheet
+        visible={composeMenuVisible}
+        onClose={() => setComposeMenuVisible(false)}
+        options={[
+          { key: 'message', label: 'New message', icon: 'person-outline', onPress: () => router.push('/new-message') },
+          { key: 'group', label: 'New group', icon: 'people-outline', onPress: () => router.push('/create-group') },
+        ]}
+      />
     </ScreenBackground>
   );
 }

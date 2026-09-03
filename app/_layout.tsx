@@ -42,6 +42,7 @@ function RootNavigator() {
         <Stack.Screen name="edit-profile" options={{ presentation: 'modal', title: 'Edit profile' }} />
         <Stack.Screen name="trail-generator" options={{ presentation: 'modal', title: 'AI Trail' }} />
         <Stack.Screen name="new-message" options={{ presentation: 'modal', title: 'New message' }} />
+        <Stack.Screen name="create-group" options={{ presentation: 'modal', title: 'New group' }} />
       </Stack.Protected>
       <Stack.Protected guard={!!session && !isOnboarded}>
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
