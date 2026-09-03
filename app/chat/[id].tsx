@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, createRef, type RefObject } from 'react';
-import { View, Text, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert } from 'react-native';
+import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,7 +35,7 @@ export default function ChatThread() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const { refreshUnreadCount } = useChat();
 
   const [otherUser, setOtherUser] = useState<OtherUser | null>(null);
@@ -50,7 +50,7 @@ export default function ChatThread() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [replyingTo, setReplyingTo] = useState<LocalMessage | null>(null);
   const [actionSheetFor, setActionSheetFor] = useState<LocalMessage | null>(null);
-  const [otherTyping, setOtherTyping] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<Map<string, string>>(new Map());
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportSheetVisible, setReportSheetVisible] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
@@ -66,7 +66,7 @@ export default function ChatThread() {
   const attachmentRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
   const channelRef = useRef<RealtimeChannel | null>(null);
   const lastTypingSentRef = useRef(0);
-  const otherTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const myUserId = session?.user.id;
 
   const loadMembers = useCallback(async () => {
@@ -208,7 +208,14 @@ export default function ChatThread() {
               return [{ ...row, pending: false }, ...prev];
             });
             if (row.sender_id !== myUserId) {
-              setOtherTyping(false);
+              const t = typingTimeoutsRef.current.get(row.sender_id);
+              if (t) { clearTimeout(t); typingTimeoutsRef.current.delete(row.sender_id); }
+              setTypingUsers((prev) => {
+                if (!prev.has(row.sender_id)) return prev;
+                const next = new Map(prev);
+                next.delete(row.sender_id);
+                return next;
+              });
               supabase.rpc('mark_conversation_read', { p_conversation_id: id }).then(() => refreshUnreadCount());
             }
           }
@@ -222,17 +229,36 @@ export default function ChatThread() {
           }
         )
         .on('broadcast', { event: 'typing' }, ({ payload }) => {
-          if (payload?.user_id === myUserId) return;
-          setOtherTyping(true);
-          if (otherTypingTimeoutRef.current) clearTimeout(otherTypingTimeoutRef.current);
-          otherTypingTimeoutRef.current = setTimeout(() => setOtherTyping(false), TYPING_TIMEOUT_MS);
+          const typerId: string | undefined = payload?.user_id;
+          const typerName: string = payload?.name || 'traveler';
+          if (!typerId || typerId === myUserId) return;
+
+          setTypingUsers((prev) => {
+            if (prev.get(typerId) === typerName) return prev;
+            const next = new Map(prev);
+            next.set(typerId, typerName);
+            return next;
+          });
+
+          const existing = typingTimeoutsRef.current.get(typerId);
+          if (existing) clearTimeout(existing);
+          typingTimeoutsRef.current.set(typerId, setTimeout(() => {
+            typingTimeoutsRef.current.delete(typerId);
+            setTypingUsers((prev) => {
+              if (!prev.has(typerId)) return prev;
+              const next = new Map(prev);
+              next.delete(typerId);
+              return next;
+            });
+          }, TYPING_TIMEOUT_MS));
         })
         .subscribe();
 
       channelRef.current = channel;
 
       return () => {
-        if (otherTypingTimeoutRef.current) clearTimeout(otherTypingTimeoutRef.current);
+        typingTimeoutsRef.current.forEach((t) => clearTimeout(t));
+        typingTimeoutsRef.current.clear();
         supabase.removeChannel(channel);
         channelRef.current = null;
         refreshUnreadCount();
@@ -264,7 +290,8 @@ export default function ChatThread() {
     const now = Date.now();
     if (channelRef.current && now - lastTypingSentRef.current > 1500) {
       lastTypingSentRef.current = now;
-      channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { user_id: myUserId } });
+      const myName = profile?.username || profile?.full_name || 'traveler';
+      channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { user_id: myUserId, name: myName } });
     }
   }
 
@@ -608,6 +635,14 @@ export default function ChatThread() {
   const lastMineIndex = messages.findIndex((m) => m.sender_id === myUserId);
   const lastMineSeen = lastMineIndex === 0 && !!otherLastReadAt && !!messages[0] && otherLastReadAt >= messages[0].created_at;
 
+  const typingNames = Array.from(typingUsers.values());
+  const typingLabel = isGroup
+    ? typingNames.length === 0 ? null
+      : typingNames.length === 1 ? `${typingNames[0]} is typing…`
+      : typingNames.length === 2 ? `${typingNames[0]} and ${typingNames[1]} are typing…`
+      : `${typingNames[0]} and ${typingNames.length - 1} others are typing…`
+    : typingNames.length > 0 ? 'typing…' : null;
+
   return (
     <ScreenBackground>
       <Stack.Screen options={{ headerShown: false }} />
@@ -624,14 +659,20 @@ export default function ChatThread() {
             else if (otherUser) router.push({ pathname: '/user/[id]', params: { id: otherUser.id } });
           }}>
           {isGroup ? (
-            <View style={styles.groupHeaderAvatar}><Ionicons name="people" size={17} color={theme.color.dusk} /></View>
+            <View style={styles.groupHeaderAvatar}>
+              {conversationInfo?.avatar_url ? (
+                <Image source={{ uri: conversationInfo.avatar_url }} style={styles.groupHeaderAvatarImage} />
+              ) : (
+                <Ionicons name="people" size={17} color={theme.color.dusk} />
+              )}
+            </View>
           ) : (
             <Avatar uri={otherUser?.avatar_url} label={name} size={34} />
           )}
           <View style={{ flex: 1 }}>
             <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
-            {otherTyping ? (
-              <Text style={styles.typingText}>typing…</Text>
+            {typingLabel ? (
+              <Text style={styles.typingText} numberOfLines={1}>{typingLabel}</Text>
             ) : isGroup ? (
               <Text style={styles.memberCountText}>{conversationInfo?.member_count ?? 0} members</Text>
             ) : null}
@@ -775,7 +816,8 @@ const styles = StyleSheet.create({
   headerName: { fontFamily: theme.font.body, fontSize: 15, color: theme.color.cream },
   typingText: { fontFamily: theme.font.bodyRegular, fontSize: 11, color: theme.color.gold, marginTop: 1 },
   memberCountText: { fontFamily: theme.font.bodyRegular, fontSize: 11, color: theme.color.muted, marginTop: 1 },
-  groupHeaderAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
+  groupHeaderAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  groupHeaderAvatarImage: { width: '100%', height: '100%' },
   menuBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: 14, paddingTop: 14, flexGrow: 1, justifyContent: 'flex-end' },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center' },

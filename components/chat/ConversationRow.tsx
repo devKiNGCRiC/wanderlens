@@ -1,4 +1,4 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/Avatar';
 import { theme } from '@/constants/theme';
@@ -43,7 +43,11 @@ export function ConversationRow({ item, myUserId, onPress, onLongPress }: Props)
     <Pressable style={styles.row} onPress={onPress} onLongPress={onLongPress}>
       {item.is_group ? (
         <View style={styles.groupAvatar}>
-          <Ionicons name="people" size={22} color={theme.color.dusk} />
+          {item.group_avatar_url ? (
+            <Image source={{ uri: item.group_avatar_url }} style={styles.groupAvatarImage} />
+          ) : (
+            <Ionicons name="people" size={22} color={theme.color.dusk} />
+          )}
         </View>
       ) : (
         <Avatar uri={item.other_avatar_url} label={name} size={50} />
@@ -77,7 +81,8 @@ export function ConversationRow({ item, myUserId, onPress, onLongPress }: Props)
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
-  groupAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
+  groupAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  groupAvatarImage: { width: '100%', height: '100%' },
   body: { flex: 1, gap: 3 },
   topLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   nameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
