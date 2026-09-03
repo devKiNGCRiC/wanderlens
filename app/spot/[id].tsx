@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
+import { ScreenBackground } from '@/components/ScreenBackground';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 
 type SpotDetail = {
@@ -125,10 +126,10 @@ export default function SpotDetail() {
 
   if (loading || !spot) {
     return (
-      <>
+      <ScreenBackground>
         <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.center}><ActivityIndicator color={theme.color.gold} /></View>
-      </>
+      </ScreenBackground>
     );
   }
 
@@ -136,7 +137,8 @@ export default function SpotDetail() {
   const grouped = groupComments(comments);
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: theme.color.dusk }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <ScreenBackground>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Stack.Screen options={{ headerShown: false }} />
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
@@ -265,11 +267,12 @@ export default function SpotDetail() {
 
       <ImageViewer visible={viewerVisible} uri={spot.photo_url} onClose={() => setViewerVisible(false)} />
     </KeyboardAvoidingView>
+    </ScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.dusk },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   heroImage: { width: '100%', height: 300 },
   backBtn: { position: 'absolute', left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   body: { padding: 20 },

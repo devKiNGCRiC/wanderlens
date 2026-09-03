@@ -10,6 +10,8 @@ export type Reaction = { emoji: string; user_id: string };
 export type MessageItem = {
   id: string;
   sender_id: string;
+  sender_username?: string | null;
+  sender_full_name?: string | null;
   content: string | null;
   created_at: string;
   pending?: boolean;
@@ -35,6 +37,8 @@ type Props = {
   message: MessageItem;
   isMine: boolean;
   myUserId: string;
+  /** Shown above the bubble — group threads only, never for your own messages. */
+  senderLabel?: string;
   onRetry?: () => void;
   onLongPress?: () => void;
   onToggleReaction?: (emoji: string) => void;
@@ -73,7 +77,7 @@ function groupReactions(reactions: Reaction[] | undefined) {
   return Array.from(byEmoji.entries()).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
-export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, polaroidRef, galleryRef, getAttachmentRef }: Props) {
+export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, polaroidRef, galleryRef, getAttachmentRef }: Props) {
   const time = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const grouped = groupReactions(message.reactions);
   const isImage = message.message_type === 'image';
@@ -87,6 +91,7 @@ export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress,
 
   return (
     <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
+      {!!senderLabel && <Text style={styles.senderLabel}>{senderLabel}</Text>}
       {isGallery ? (
         <View style={styles.galleryOuter}>
         <View style={[useGrid ? styles.gridWrap : styles.galleryWrap, message.failed && styles.bubbleFailed]}>
@@ -319,6 +324,7 @@ export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress,
 
 const styles = StyleSheet.create({
   row: { marginVertical: 3, maxWidth: '78%' },
+  senderLabel: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.gold, marginBottom: 3, marginLeft: 4 },
   rowMine: { alignSelf: 'flex-end', alignItems: 'flex-end' },
   rowTheirs: { alignSelf: 'flex-start', alignItems: 'flex-start' },
   bubble: { borderRadius: theme.radius.md, paddingVertical: 9, paddingHorizontal: 14 },

@@ -7,6 +7,7 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { useLocationPickerStore } from '@/store/locationPicker';
+import { ScreenBackground } from '@/components/ScreenBackground';
 
 const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
@@ -54,7 +55,7 @@ export default function PickLocation() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.color.dusk }}>
+    <ScreenBackground>
       <Stack.Screen options={{ headerShown: false }} />
       <Map style={{ flex: 1 }} mapStyle={OPENFREEMAP_STYLE} logo={false} onPress={handleMapPress}>
         <Camera initialViewState={{ center: [point.lng, point.lat], zoom: 12 }} />
@@ -77,7 +78,7 @@ export default function PickLocation() {
           <Text style={styles.confirmBtnText}>Use this location</Text>
         </Pressable>
       </View>
-    </View>
+    </ScreenBackground>
   );
 }
 

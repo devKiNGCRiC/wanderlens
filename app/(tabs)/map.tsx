@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
 import { useUserLocation } from '@/hooks/useUserLocation';
 import { clusterSpots } from '@/lib/clusterSpots';
+import { ScreenBackground } from '@/components/ScreenBackground';
 
 const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
@@ -67,10 +68,10 @@ export default function MapScreen() {
   }
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator color={theme.color.gold} /></View>;
+    return <ScreenBackground><View style={styles.center}><ActivityIndicator color={theme.color.gold} /></View></ScreenBackground>;
   }
   if (!coords) {
-    return <View style={styles.center}><Text style={styles.fallbackText}>Location permission is needed to show the map.</Text></View>;
+    return <ScreenBackground><View style={styles.center}><Text style={styles.fallbackText}>Location permission is needed to show the map.</Text></View></ScreenBackground>;
   }
 
   const focusCenter: [number, number] = params.focusLat && params.focusLng
@@ -79,6 +80,7 @@ export default function MapScreen() {
   const selected = selectedCluster ? selectedCluster[focusedIndex] : null;
 
   return (
+    <ScreenBackground>
     <View style={styles.container}>
       <Map style={styles.map} mapStyle={OPENFREEMAP_STYLE} logo={false}>
         <Camera initialViewState={{ center: focusCenter, zoom: params.focusLat ? 14 : 12 }} />
@@ -181,13 +183,14 @@ export default function MapScreen() {
         <Text style={styles.fabText}>+</Text>
       </Pressable>
     </View>
+    </ScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.color.dusk },
+  container: { flex: 1 },
   map: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.dusk, padding: 24 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   fallbackText: { fontFamily: theme.font.bodyRegular, color: theme.color.muted, textAlign: 'center' },
   pin: { width: 44, height: 44, borderRadius: 22, borderWidth: 3, borderColor: theme.color.gold, overflow: 'visible', backgroundColor: theme.color.surface, shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
   pinImage: { width: '100%', height: '100%', borderRadius: 19 },

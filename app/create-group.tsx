@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { Avatar } from '@/components/Avatar';
+import { ScreenBackground } from '@/components/ScreenBackground';
 
 type Person = { id: string; username: string | null; full_name: string | null; avatar_url: string | null };
 
@@ -68,6 +69,7 @@ export default function CreateGroupScreen() {
   }
 
   return (
+    <ScreenBackground>
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'New group' }} />
       <TextInput
@@ -134,11 +136,12 @@ export default function CreateGroupScreen() {
         {creating ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.createBtnText}>Create group</Text>}
       </Pressable>
     </View>
+    </ScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.color.dusk, padding: 20 },
+  container: { flex: 1, padding: 20 },
   input: { backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, padding: 12, borderWidth: 1, borderColor: theme.color.surface2, fontFamily: theme.font.bodyRegular, color: theme.color.cream, fontSize: 14, marginBottom: 12 },
   chipRow: { gap: 8, paddingBottom: 12 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.color.surface, borderRadius: 18, paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: theme.color.surface2, maxWidth: 140 },

@@ -11,6 +11,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { useChat } from '@/context/ChatProvider';
 import { Avatar } from '@/components/Avatar';
+import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
 import { ImageViewer } from '@/components/ImageViewer';
 import { MessageBubble, type MessageItem } from '@/components/chat/MessageBubble';
@@ -40,6 +41,7 @@ export default function ChatThread() {
   const [otherUser, setOtherUser] = useState<OtherUser | null>(null);
   const [otherLastReadAt, setOtherLastReadAt] = useState<string | null>(null);
   const [conversationInfo, setConversationInfo] = useState<ConversationInfo | null>(null);
+  const conversationInfoRef = useRef<ConversationInfo | null>(null);
   const [myStatus, setMyStatus] = useState<MemberStatus>('accepted');
   const [myBlocked, setMyBlocked] = useState(false);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -71,7 +73,7 @@ export default function ChatThread() {
     if (!id || !myUserId) return;
     const { data: infoData } = await supabase.rpc('get_conversation_info', { p_conversation_id: id }).maybeSingle();
     const info = infoData as ConversationInfo | null;
-    if (info) setConversationInfo(info);
+    if (info) { setConversationInfo(info); conversationInfoRef.current = info; }
 
     const { data } = await supabase
       .from('conversation_members')
@@ -159,6 +161,10 @@ export default function ChatThread() {
           { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${id}` },
           async (payload) => {
             let raw = payload.new as LocalMessage;
+            if (conversationInfoRef.current?.is_group && raw.sender_id !== myUserId) {
+              const { data: sender } = await supabase.from('profiles').select('username, full_name').eq('id', raw.sender_id).maybeSingle();
+              if (sender) raw = { ...raw, sender_username: sender.username, sender_full_name: sender.full_name };
+            }
             if (raw.message_type === 'gallery') {
               // The messages row broadcasts as soon as it's inserted, which can
               // land slightly before the sender's follow-up attachments insert
@@ -603,7 +609,7 @@ export default function ChatThread() {
   const lastMineSeen = lastMineIndex === 0 && !!otherLastReadAt && !!messages[0] && otherLastReadAt >= messages[0].created_at;
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.color.dusk }}>
+    <ScreenBackground>
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Fixed header — stays put; only the message area + composer below react to the keyboard. */}
@@ -653,6 +659,7 @@ export default function ChatThread() {
                   message={item}
                   isMine={item.sender_id === myUserId}
                   myUserId={myUserId ?? ''}
+                  senderLabel={isGroup && item.sender_id !== myUserId ? (item.sender_username || item.sender_full_name || 'traveler') : undefined}
                   onRetry={() => handleRetry(item)}
                   onLongPress={() => { if (!item.pending) setActionSheetFor(item); }}
                   onToggleReaction={(emoji) => toggleReaction(item, emoji)}
@@ -756,7 +763,7 @@ export default function ChatThread() {
         }
         styledLabel="Save as polaroid"
       />
-    </View>
+    </ScreenBackground>
   );
 }
 
