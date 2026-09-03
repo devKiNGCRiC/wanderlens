@@ -6,7 +6,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { Avatar } from '@/components/Avatar';
 import { ScreenBackground } from '@/components/ScreenBackground';
-import type { ConversationSummary } from '@/components/chat/ConversationRow';
+import { ConversationRow, type ConversationSummary } from '@/components/chat/ConversationRow';
 
 type Person = { id: string; username: string | null; full_name: string | null; avatar_url: string | null };
 
@@ -64,6 +64,7 @@ export default function NewMessageScreen() {
   }
 
   async function selectTarget(personId?: string, conversationId?: string) {
+    if (starting) return;
     const key = personId ?? conversationId ?? '';
     setStarting(key);
     let targetId = conversationId ?? null;
@@ -96,18 +97,14 @@ export default function NewMessageScreen() {
             keyExtractor={(item) => item.conversation_id}
             style={{ maxHeight: 260 }}
             contentContainerStyle={{ paddingBottom: 10 }}
-            renderItem={({ item }) => {
-              const name = item.other_username || item.other_full_name || 'traveler';
-              return (
-                <Pressable style={styles.row} onPress={() => selectTarget(undefined, item.conversation_id)} disabled={!!starting}>
-                  <Avatar uri={item.other_avatar_url} label={name} size={44} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.name}>{name}</Text>
-                  </View>
-                  {starting === item.conversation_id && <ActivityIndicator color={theme.color.gold} />}
-                </Pressable>
-              );
-            }}
+            renderItem={({ item }) => (
+              <View style={styles.conversationRowWrap}>
+                <View style={{ flex: 1 }}>
+                  <ConversationRow item={item} myUserId={session!.user.id} onPress={() => selectTarget(undefined, item.conversation_id)} />
+                </View>
+                {starting === item.conversation_id && <ActivityIndicator color={theme.color.gold} />}
+              </View>
+            )}
           />
           <Text style={styles.sectionLabel}>Or search someone new</Text>
         </>
@@ -155,6 +152,7 @@ const styles = StyleSheet.create({
   sectionLabel: { fontFamily: theme.font.mono, fontSize: 10.5, color: theme.color.muted, marginBottom: 8, marginTop: 4 },
   input: { backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, padding: 12, borderWidth: 1, borderColor: theme.color.surface2, fontFamily: theme.font.bodyRegular, color: theme.color.cream, fontSize: 14 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  conversationRowWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { fontFamily: theme.font.body, fontSize: 14.5, color: theme.color.cream },
   username: { fontFamily: theme.font.mono, fontSize: 11, color: theme.color.gold, marginTop: 2 },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', marginTop: 30 },
