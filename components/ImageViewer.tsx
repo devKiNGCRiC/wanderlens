@@ -4,13 +4,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { saveRemoteImageToGallery } from '@/lib/media';
 
-export function ImageViewer({ visible, uri, onClose }: { visible: boolean; uri: string | null | undefined; onClose: () => void }) {
-  const [saving, setSaving] = useState(false);
+type Props = {
+  visible: boolean;
+  uri: string | null | undefined;
+  onClose: () => void;
+  /** Optional second save action for a styled/framed version (e.g. "Save as polaroid") — omit for plain image viewing. */
+  onSaveStyled?: () => Promise<unknown> | void;
+  styledLabel?: string;
+};
+
+export function ImageViewer({ visible, uri, onClose, onSaveStyled, styledLabel }: Props) {
+  const [saving, setSaving] = useState<'raw' | 'styled' | null>(null);
   if (!uri) return null;
 
-  async function handleSave() {
+  async function handleSaveRaw() {
     if (!uri || saving) return;
-    setSaving(true);
+    setSaving('raw');
     try {
       const ok = await saveRemoteImageToGallery(uri);
       if (ok) Alert.alert('Saved', 'Photo saved to your gallery.');
@@ -18,7 +27,17 @@ export function ImageViewer({ visible, uri, onClose }: { visible: boolean; uri: 
     } catch {
       Alert.alert('Could not save', 'Something went wrong saving this photo.');
     } finally {
-      setSaving(false);
+      setSaving(null);
+    }
+  }
+
+  async function handleSaveStyled() {
+    if (!onSaveStyled || saving) return;
+    setSaving('styled');
+    try {
+      await onSaveStyled();
+    } finally {
+      setSaving(null);
     }
   }
 
@@ -26,10 +45,20 @@ export function ImageViewer({ visible, uri, onClose }: { visible: boolean; uri: 
     <Modal visible={visible} transparent animationType="fade">
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Image source={{ uri }} style={styles.image} resizeMode="contain" />
-        <Pressable onPress={handleSave} disabled={saving} style={[styles.save, { right: 68 }]}>
-          {saving ? <ActivityIndicator size="small" color={theme.color.gold} /> : <Ionicons name="download-outline" size={18} color={theme.color.gold} />}
+
+        {onSaveStyled && (
+          <Pressable onPress={handleSaveStyled} disabled={!!saving} style={[styles.save, { right: 112 }]}>
+            {saving === 'styled' ? <ActivityIndicator size="small" color={theme.color.gold} /> : <Ionicons name="images-outline" size={18} color={theme.color.gold} />}
+          </Pressable>
+        )}
+        <Pressable onPress={handleSaveRaw} disabled={!!saving} style={[styles.save, { right: 68 }]}>
+          {saving === 'raw' ? <ActivityIndicator size="small" color={theme.color.gold} /> : <Ionicons name="download-outline" size={18} color={theme.color.gold} />}
         </Pressable>
         <Pressable onPress={onClose} style={styles.close}><Text style={styles.closeText}>✕</Text></Pressable>
+
+        {onSaveStyled && !!styledLabel && (
+          <Text style={styles.hint}>{styledLabel}</Text>
+        )}
       </Pressable>
     </Modal>
   );
@@ -41,4 +70,5 @@ const styles = StyleSheet.create({
   save: { position: 'absolute', top: 50, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
   close: { position: 'absolute', top: 50, right: 24, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
   closeText: { color: '#fff', fontSize: 13 },
+  hint: { position: 'absolute', top: 88, right: 24, color: 'rgba(255,255,255,0.5)', fontSize: 9 },
 });

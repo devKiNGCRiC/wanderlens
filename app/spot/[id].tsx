@@ -180,6 +180,9 @@ export default function SpotDetail() {
             <Pressable onPress={handleShare} style={styles.actionBtn}>
               <Ionicons name="share-outline" size={20} color={theme.color.cream} />
             </Pressable>
+            <Pressable onPress={() => router.push({ pathname: '/new-message', params: { shareSpotId: spot.id } })} style={styles.actionBtn}>
+              <Ionicons name="paper-plane-outline" size={19} color={theme.color.cream} />
+            </Pressable>
             <Pressable onPress={toggleSave} style={styles.actionBtn}>
               <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color={saved ? theme.color.gold : theme.color.cream} />
             </Pressable>

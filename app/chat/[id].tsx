@@ -50,6 +50,8 @@ export default function ChatThread() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportSheetVisible, setReportSheetVisible] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const [viewerMessage, setViewerMessage] = useState<LocalMessage | null>(null);
+  const [viewerAttachmentIndex, setViewerAttachmentIndex] = useState<number | undefined>(undefined);
   const [pickedAssets, setPickedAssets] = useState<{ uri: string; base64: string }[]>([]);
   const [pickingImages, setPickingImages] = useState(false);
   const [sendMode, setSendMode] = useState<SendMode>('individual');
@@ -57,6 +59,7 @@ export default function ChatThread() {
   const hasMoreRef = useRef(true);
   const polaroidRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
   const galleryRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
+  const attachmentRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
   const channelRef = useRef<RealtimeChannel | null>(null);
   const lastTypingSentRef = useRef(0);
   const otherTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,6 +162,22 @@ export default function ChatThread() {
                 atts = (await fetchAttachments()).data;
               }
               raw = { ...raw, attachments: atts ?? [] };
+            }
+            if (raw.message_type === 'spot' && raw.shared_spot_id) {
+              const { data: spot } = await supabase
+                .from('spots')
+                .select('id, title, photo_url, genre, location_label')
+                .eq('id', raw.shared_spot_id)
+                .single();
+              if (spot) {
+                raw = {
+                  ...raw,
+                  shared_spot_title: spot.title,
+                  shared_spot_photo_url: spot.photo_url,
+                  shared_spot_genre: spot.genre,
+                  shared_spot_location_label: spot.location_label,
+                };
+              }
             }
             const [row] = await resolveMediaUrls([raw]);
             setMessages((prev) => {
@@ -293,7 +312,9 @@ export default function ChatThread() {
         Alert.alert('Permission needed', 'Allow photo library access to send a photo.');
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.6, base64: true, mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 10 });
+      // Higher quality than spot/profile photos (0.6) — chat photos are shared
+      // 1:1 and are the thing being downloaded, so it's worth the extra bytes.
+      const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.9, base64: true, mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 10 });
       if (result.canceled) return;
       const assets = result.assets.filter((a) => a.base64).map((a) => ({ uri: a.uri, base64: a.base64 as string }));
       setPickedAssets((prev) => [...prev, ...assets]);
@@ -507,6 +528,23 @@ export default function ChatThread() {
     return galleryRefsMap.current.get(id)!;
   }
 
+  function getAttachmentRef(messageId: string, index: number): RefObject<View | null> {
+    const key = `${messageId}:${index}`;
+    if (!attachmentRefsMap.current.has(key)) attachmentRefsMap.current.set(key, createRef<View>());
+    return attachmentRefsMap.current.get(key)!;
+  }
+
+  async function handleSaveAttachmentAsPolaroid(item: LocalMessage, index: number) {
+    const ref = attachmentRefsMap.current.get(`${item.id}:${index}`);
+    if (!ref) return;
+    try {
+      const ok = await saveViewAsImage(ref);
+      Alert.alert(ok ? 'Saved' : 'Permission needed', ok ? 'Polaroid saved to your gallery.' : 'Allow photo access to save images.');
+    } catch {
+      Alert.alert('Could not save', 'Something went wrong saving this photo.');
+    }
+  }
+
   async function handleSaveGallery(item: LocalMessage) {
     const ref = galleryRefsMap.current.get(item.id);
     if (!ref) return;
@@ -587,10 +625,12 @@ export default function ChatThread() {
                   onRetry={() => handleRetry(item)}
                   onLongPress={() => { if (!item.pending) setActionSheetFor(item); }}
                   onToggleReaction={(emoji) => toggleReaction(item, emoji)}
-                  onPressImage={setViewerUri}
+                  onPressImage={(uri, attIndex) => { setViewerUri(uri); setViewerMessage(item); setViewerAttachmentIndex(attIndex); }}
                   onSaveGallery={item.message_type === 'gallery' ? () => handleSaveGallery(item) : undefined}
+                  onPressSpot={(spotId) => router.push({ pathname: '/spot/[id]', params: { id: spotId } })}
                   polaroidRef={item.message_type === 'image' ? getPolaroidRef(item.id) : undefined}
                   galleryRef={item.message_type === 'gallery' ? getGalleryRef(item.id) : undefined}
+                  getAttachmentRef={item.message_type === 'gallery' ? (index) => getAttachmentRef(item.id, index) : undefined}
                 />
                 {index === 0 && item.sender_id === myUserId && lastMineSeen && (
                   <Text style={styles.seenText}>Seen</Text>
@@ -670,7 +710,17 @@ export default function ChatThread() {
         ]}
       />
 
-      <ImageViewer visible={!!viewerUri} uri={viewerUri} onClose={() => setViewerUri(null)} />
+      <ImageViewer
+        visible={!!viewerUri}
+        uri={viewerUri}
+        onClose={() => { setViewerUri(null); setViewerMessage(null); setViewerAttachmentIndex(undefined); }}
+        onSaveStyled={
+          viewerMessage?.message_type === 'image' ? () => handleSaveAsPolaroid(viewerMessage)
+          : viewerMessage?.message_type === 'gallery' && viewerAttachmentIndex !== undefined ? () => handleSaveAttachmentAsPolaroid(viewerMessage, viewerAttachmentIndex)
+          : undefined
+        }
+        styledLabel="Save as polaroid"
+      />
     </View>
   );
 }

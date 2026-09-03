@@ -3,6 +3,7 @@ import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-nati
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
+import { SpotPreviewCard } from '@/components/chat/SpotPreviewCard';
 
 export type Reaction = { emoji: string; user_id: string };
 
@@ -17,12 +18,17 @@ export type MessageItem = {
   reply_to_content?: string | null;
   reply_to_sender_name?: string | null;
   reactions?: Reaction[];
-  message_type?: 'text' | 'image' | 'gallery';
+  message_type?: 'text' | 'image' | 'gallery' | 'spot';
   media_path?: string | null;
   media_url?: string | null;
   local_uri?: string | null;
   gallery_layout?: 'collage' | 'grid' | null;
   attachments?: { id?: string; media_path?: string; media_url?: string; local_uri?: string }[];
+  shared_spot_id?: string | null;
+  shared_spot_title?: string | null;
+  shared_spot_photo_url?: string | null;
+  shared_spot_genre?: string | null;
+  shared_spot_location_label?: string | null;
 };
 
 type Props = {
@@ -32,10 +38,12 @@ type Props = {
   onRetry?: () => void;
   onLongPress?: () => void;
   onToggleReaction?: (emoji: string) => void;
-  onPressImage?: (uri: string) => void;
+  onPressImage?: (uri: string, attachmentIndex?: number) => void;
   onSaveGallery?: () => void;
+  onPressSpot?: (spotId: string) => void;
   polaroidRef?: RefObject<View | null>;
   galleryRef?: RefObject<View | null>;
+  getAttachmentRef?: (index: number) => RefObject<View | null>;
 };
 
 const CLUSTER_ROTATIONS = [-7, 5, -4, 6, -6, 4];
@@ -58,11 +66,12 @@ function groupReactions(reactions: Reaction[] | undefined) {
   return Array.from(byEmoji.entries()).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
-export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, polaroidRef, galleryRef }: Props) {
+export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, polaroidRef, galleryRef, getAttachmentRef }: Props) {
   const time = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const grouped = groupReactions(message.reactions);
   const isImage = message.message_type === 'image';
   const isGallery = message.message_type === 'gallery';
+  const isSpot = message.message_type === 'spot';
   const imageSrc = message.local_uri || message.media_url;
   const attachments = message.attachments ?? [];
   const useGrid = message.gallery_layout === 'grid';
@@ -75,27 +84,46 @@ export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress,
         <View style={styles.galleryOuter}>
         <View ref={galleryRef} collapsable={false} style={[useGrid ? styles.gridWrap : styles.galleryWrap, message.failed && styles.bubbleFailed]}>
           {useGrid ? (
-            <View style={styles.gridGroup}>
-              {visibleAttachments.map((att, i) => {
-                const src = att.local_uri || att.media_url;
-                const showMore = i === visibleAttachments.length - 1 && extraCount > 0;
-                return (
-                  <Pressable
-                    key={att.id ?? att.media_path ?? i}
-                    onLongPress={onLongPress}
-                    delayLongPress={250}
-                    onPress={src ? () => onPressImage?.(src) : undefined}
-                    style={styles.gridCell}>
-                    {src ? (
-                      <Image source={{ uri: src }} style={styles.image} contentFit="cover" />
-                    ) : (
-                      <View style={[styles.image, styles.imagePlaceholder]}><ActivityIndicator size="small" color={theme.color.gold} /></View>
-                    )}
-                    {showMore && <View style={styles.galleryMoreOverlay}><Text style={styles.galleryMoreText}>+{extraCount}</Text></View>}
-                  </Pressable>
-                );
-              })}
-            </View>
+            <>
+              <View style={styles.gridGroup}>
+                {visibleAttachments.map((att, i) => {
+                  const src = att.local_uri || att.media_url;
+                  const showMore = i === visibleAttachments.length - 1 && extraCount > 0;
+                  return (
+                    <Pressable
+                      key={att.id ?? att.media_path ?? i}
+                      onLongPress={onLongPress}
+                      delayLongPress={250}
+                      onPress={src ? () => onPressImage?.(src, i) : undefined}
+                      style={styles.gridCell}>
+                      {src ? (
+                        <Image source={{ uri: src }} style={styles.image} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.image, styles.imagePlaceholder]}><ActivityIndicator size="small" color={theme.color.gold} /></View>
+                      )}
+                      {showMore && <View style={styles.galleryMoreOverlay}><Text style={styles.galleryMoreText}>+{extraCount}</Text></View>}
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {/* Off-screen mini-polaroid per grid photo — grid cells are plain
+                  crops with no frame, so "save as polaroid" for one photo needs
+                  something framed to actually capture. */}
+              {getAttachmentRef && (
+                <View style={styles.hiddenExportLayer} pointerEvents="none">
+                  {visibleAttachments.map((att, i) => {
+                    const src = att.local_uri || att.media_url;
+                    return (
+                      <View key={`export-${att.id ?? att.media_path ?? i}`} ref={getAttachmentRef(i)} collapsable={false} style={styles.miniPolaroid}>
+                        <View style={styles.miniPhotoWrap}>
+                          {src ? <Image source={{ uri: src }} style={styles.image} contentFit="cover" /> : <View style={styles.image} />}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </>
           ) : (
             chunk(visibleAttachments, CLUSTER_COLS).map((row, rowIndex) => (
               <View key={rowIndex} style={[styles.clusterRow, rowIndex > 0 && styles.clusterRowOverlap]}>
@@ -109,15 +137,17 @@ export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress,
                       key={att.id ?? att.media_path ?? i}
                       onLongPress={onLongPress}
                       delayLongPress={250}
-                      onPress={src ? () => onPressImage?.(src) : undefined}
-                      style={[styles.miniPolaroid, colIndex > 0 && styles.miniPolaroidOverlap, { transform: [{ rotate: `${rotate}deg` }] }]}>
-                      <View style={styles.miniPhotoWrap}>
-                        {src ? (
-                          <Image source={{ uri: src }} style={styles.image} contentFit="cover" />
-                        ) : (
-                          <View style={[styles.image, styles.imagePlaceholder]}><ActivityIndicator size="small" color={theme.color.gold} /></View>
-                        )}
-                        {showMore && <View style={styles.galleryMoreOverlay}><Text style={styles.galleryMoreText}>+{extraCount}</Text></View>}
+                      onPress={src ? () => onPressImage?.(src, i) : undefined}
+                      style={[colIndex > 0 && styles.miniPolaroidOverlap, { transform: [{ rotate: `${rotate}deg` }] }]}>
+                      <View ref={getAttachmentRef?.(i)} collapsable={false} style={styles.miniPolaroid}>
+                        <View style={styles.miniPhotoWrap}>
+                          {src ? (
+                            <Image source={{ uri: src }} style={styles.image} contentFit="cover" />
+                          ) : (
+                            <View style={[styles.image, styles.imagePlaceholder]}><ActivityIndicator size="small" color={theme.color.gold} /></View>
+                          )}
+                          {showMore && <View style={styles.galleryMoreOverlay}><Text style={styles.galleryMoreText}>+{extraCount}</Text></View>}
+                        </View>
                       </View>
                     </Pressable>
                   );
@@ -143,6 +173,22 @@ export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress,
             <Ionicons name="download-outline" size={14} color={theme.color.cream} />
           </Pressable>
         )}
+        </View>
+      ) : isSpot ? (
+        <View>
+          <SpotPreviewCard
+            title={message.shared_spot_title ?? null}
+            photoUrl={message.shared_spot_photo_url ?? null}
+            genre={message.shared_spot_genre ?? null}
+            locationLabel={message.shared_spot_location_label ?? null}
+            onPress={() => message.shared_spot_id && onPressSpot?.(message.shared_spot_id)}
+          />
+          {!!message.content && (
+            <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs, styles.spotCaptionBubble]}>
+              <Text style={[styles.text, isMine ? styles.textMine : styles.textTheirs]}>{message.content}</Text>
+            </View>
+          )}
+          <Text style={[styles.time, styles.spotTime, isMine && styles.spotTimeMine]}>{time}</Text>
         </View>
       ) : (
         <Pressable onLongPress={onLongPress} delayLongPress={250} onPress={isImage && imageSrc ? () => onPressImage?.(imageSrc) : undefined}>
@@ -200,7 +246,7 @@ export function MessageBubble({ message, isMine, myUserId, onRetry, onLongPress,
         </View>
       )}
 
-      {!isImage && !isGallery && (
+      {!isImage && !isGallery && !isSpot && (
         <View style={[styles.metaRow, isMine ? styles.metaRowMine : styles.metaRowTheirs]}>
           {message.failed ? (
             <Pressable onPress={onRetry} style={styles.retryRow}>
@@ -244,6 +290,10 @@ const styles = StyleSheet.create({
   gridWrap: { width: 203 },
   gridGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, borderRadius: theme.radius.md, overflow: 'hidden' },
   gridCell: { width: 100, height: 100, backgroundColor: theme.color.surface2 },
+  hiddenExportLayer: { position: 'absolute', top: -3000, left: 0, flexDirection: 'row', gap: 4 },
+  spotCaptionBubble: { marginTop: 6, borderBottomRightRadius: theme.radius.md, borderBottomLeftRadius: theme.radius.md },
+  spotTime: { marginTop: 4, paddingHorizontal: 4 },
+  spotTimeMine: { textAlign: 'right' },
   galleryMoreOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   galleryMoreText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   galleryCaption: { fontFamily: theme.font.displayItalic, fontSize: 12.5, color: theme.color.cream, marginTop: 10, textAlign: 'center' },
