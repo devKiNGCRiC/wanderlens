@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Modal, Pressable, Image, Text, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
-import { saveRemoteImageToGallery } from '@/lib/media';
+import { saveRemoteMediaToGallery } from '@/lib/media';
 
 type Props = {
   visible: boolean;
@@ -21,7 +21,7 @@ export function ImageViewer({ visible, uri, onClose, onSaveStyled, styledLabel }
     if (!uri || saving) return;
     setSaving('raw');
     try {
-      const ok = await saveRemoteImageToGallery(uri);
+      const ok = await saveRemoteMediaToGallery(uri);
       if (ok) Alert.alert('Saved', 'Photo saved to your gallery.');
       else Alert.alert('Permission needed', 'Allow photo access to save images.');
     } catch {

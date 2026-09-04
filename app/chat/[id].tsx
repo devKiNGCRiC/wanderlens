@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, createRef, type RefObject } from 'react';
-import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert, Linking, Platform } from 'react-native';
+import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,9 +20,10 @@ import { MessageBubble, type MessageItem } from '@/components/chat/MessageBubble
 import { MessageComposer, type SendMode } from '@/components/chat/MessageComposer';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
 import { MessageSearchOverlay } from '@/components/chat/MessageSearchOverlay';
+import { VideoViewerModal } from '@/components/chat/VideoViewerModal';
 import { RequestBanner } from '@/components/chat/RequestBanner';
-import { generateClientId } from '@/lib/chat';
-import { saveRemoteImageToGallery, saveViewAsImage } from '@/lib/media';
+import { generateClientId, openInMaps } from '@/lib/chat';
+import { saveRemoteMediaToGallery, saveViewAsImage } from '@/lib/media';
 
 const MEDIA_BUCKET = 'message-media';
 
@@ -33,6 +34,7 @@ type ConversationInfo = { is_group: boolean; name: string | null; avatar_url: st
 
 const PAGE_SIZE = 30;
 const TYPING_TIMEOUT_MS = 3000;
+const MAX_VIDEO_SECONDS = 90;
 
 export default function ChatThread() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -65,6 +67,8 @@ export default function ChatThread() {
   const [sendMode, setSendMode] = useState<SendMode>('individual');
   const [sharingLocation, setSharingLocation] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
+  const [pickingVideo, setPickingVideo] = useState(false);
+  const [videoViewerUri, setVideoViewerUri] = useState<string | null>(null);
 
   const hasMoreRef = useRef(true);
   const polaroidRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
@@ -105,7 +109,7 @@ export default function ChatThread() {
     type Target = { path: string; rowId: string; attIndex?: number };
     const targets: Target[] = [];
     rows.forEach((r) => {
-      if (r.message_type === 'image' && r.media_path && !r.media_url && !r.local_uri) {
+      if ((r.message_type === 'image' || r.message_type === 'video') && r.media_path && !r.media_url && !r.local_uri) {
         targets.push({ path: r.media_path, rowId: r.id });
       }
       if (r.message_type === 'gallery') {
@@ -441,6 +445,73 @@ export default function ChatThread() {
     }
   }
 
+  async function pickVideo() {
+    if (!session || !id) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to send a video.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], quality: 0.8 });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const durationSeconds = asset.duration ? Math.round(asset.duration / 1000) : null;
+    if (durationSeconds && durationSeconds > MAX_VIDEO_SECONDS) {
+      Alert.alert('Video too long', `Please choose a video under ${MAX_VIDEO_SECONDS} seconds.`);
+      return;
+    }
+    sendVideoMessage({ uri: asset.uri, durationSeconds });
+  }
+
+  async function sendVideoMessage(asset: { uri: string; durationSeconds: number | null }, retryOf?: LocalMessage) {
+    if (!session || !id) return;
+    const clientId = retryOf?.client_generated_id ?? generateClientId();
+    const tempId = retryOf?.id ?? `temp-${clientId}`;
+    const duration = retryOf ? (retryOf.video_duration_seconds ?? null) : asset.durationSeconds;
+
+    if (retryOf) {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m)));
+    } else {
+      const temp: LocalMessage = {
+        id: tempId,
+        sender_id: session.user.id,
+        content: null,
+        created_at: new Date().toISOString(),
+        client_generated_id: clientId,
+        pending: true,
+        message_type: 'video',
+        local_uri: asset.uri,
+        video_duration_seconds: duration,
+      };
+      setMessages((prev) => [temp, ...prev]);
+    }
+
+    setPickingVideo(true);
+    try {
+      const path = `${id}/${session.user.id}_${Date.now()}.mp4`;
+      // Videos can be tens of MB — fetch+arrayBuffer avoids holding a base64
+      // copy (roughly 33% larger) in memory the way the photo upload path does.
+      const response = await fetch(asset.uri);
+      const arrayBuffer = await response.arrayBuffer();
+      const { error: uploadError } = await supabase.storage.from(MEDIA_BUCKET).upload(path, arrayBuffer, { contentType: 'video/mp4' });
+      if (uploadError) throw uploadError;
+
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'video', media_path: path, video_duration_seconds: duration, client_generated_id: clientId })
+        .select()
+        .single();
+      if (error || !data) throw error ?? new Error('insert failed');
+
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, ...data, pending: false } : m)));
+      if (myStatus === 'request') setMyStatus('accepted');
+    } catch {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)));
+    } finally {
+      setPickingVideo(false);
+    }
+  }
+
   async function sendGalleryMessage(assets: { uri: string; base64: string }[], caption: string, retryOf?: LocalMessage, layout?: 'collage' | 'grid') {
     if (!session || !id) return;
     const clientId = retryOf?.client_generated_id ?? generateClientId();
@@ -562,15 +633,6 @@ export default function ChatThread() {
     }
   }
 
-  function openInMaps(lat: number, lng: number) {
-    const url = Platform.select({
-      ios: `maps:0,0?q=${lat},${lng}`,
-      android: `geo:0,0?q=${lat},${lng}`,
-      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
-    });
-    if (url) Linking.openURL(url).catch(() => {});
-  }
-
   function handleRetry(item: LocalMessage) {
     if (item.message_type === 'image') {
       if (item._base64 && item.local_uri) sendImageMessage({ uri: item.local_uri, base64: item._base64 }, item);
@@ -578,6 +640,8 @@ export default function ChatThread() {
       if (item._base64s?.length) sendGalleryMessage([], '', item);
     } else if (item.message_type === 'location') {
       shareLocation(item);
+    } else if (item.message_type === 'video') {
+      if (item.local_uri) sendVideoMessage({ uri: item.local_uri, durationSeconds: item.video_duration_seconds ?? null }, item);
     } else {
       sendMessage(item);
     }
@@ -688,7 +752,7 @@ export default function ChatThread() {
     const uri = item.local_uri || item.media_url;
     if (!uri) return;
     try {
-      const ok = await saveRemoteImageToGallery(uri);
+      const ok = await saveRemoteMediaToGallery(uri);
       Alert.alert(ok ? 'Saved' : 'Permission needed', ok ? 'Photo saved to your gallery.' : 'Allow photo access to save images.');
     } catch {
       Alert.alert('Could not save', 'Something went wrong saving this photo.');
@@ -787,6 +851,7 @@ export default function ChatThread() {
                   onSaveGallery={item.message_type === 'gallery' ? () => handleSaveGallery(item) : undefined}
                   onPressSpot={(spotId) => router.push({ pathname: '/spot/[id]', params: { id: spotId } })}
                   onPressLocation={openInMaps}
+                  onPressVideo={setVideoViewerUri}
                   polaroidRef={item.message_type === 'image' ? getPolaroidRef(item.id) : undefined}
                   galleryRef={item.message_type === 'gallery' ? getGalleryRef(item.id) : undefined}
                   getAttachmentRef={item.message_type === 'gallery' ? (index) => getAttachmentRef(item.id, index) : undefined}
@@ -826,6 +891,8 @@ export default function ChatThread() {
             onSend={handleSend}
             onPickImage={pickImages}
             pickingImages={pickingImages}
+            onPickVideo={pickVideo}
+            pickingVideo={pickingVideo}
             onShareLocation={() => shareLocation()}
             sharingLocation={sharingLocation}
             pickedAssets={pickedAssets}
@@ -890,6 +957,8 @@ export default function ChatThread() {
       {id && myUserId && (
         <MessageSearchOverlay visible={searchVisible} conversationId={id} myUserId={myUserId} onClose={() => setSearchVisible(false)} />
       )}
+
+      <VideoViewerModal visible={!!videoViewerUri} uri={videoViewerUri} onClose={() => setVideoViewerUri(null)} />
     </ScreenBackground>
   );
 }

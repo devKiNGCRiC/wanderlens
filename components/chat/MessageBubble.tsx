@@ -21,10 +21,11 @@ export type MessageItem = {
   reply_to_content?: string | null;
   reply_to_sender_name?: string | null;
   reactions?: Reaction[];
-  message_type?: 'text' | 'image' | 'gallery' | 'spot' | 'location';
+  message_type?: 'text' | 'image' | 'gallery' | 'spot' | 'location' | 'video';
   media_path?: string | null;
   media_url?: string | null;
   local_uri?: string | null;
+  video_duration_seconds?: number | null;
   gallery_layout?: 'collage' | 'grid' | null;
   attachments?: { id?: string; media_path?: string; media_url?: string; local_uri?: string }[];
   shared_spot_id?: string | null;
@@ -50,6 +51,7 @@ type Props = {
   onSaveGallery?: () => void;
   onPressSpot?: (spotId: string) => void;
   onPressLocation?: (lat: number, lng: number) => void;
+  onPressVideo?: (uri: string) => void;
   polaroidRef?: RefObject<View | null>;
   galleryRef?: RefObject<View | null>;
   getAttachmentRef?: (index: number) => RefObject<View | null>;
@@ -64,6 +66,14 @@ const CLUSTER_COLS = 3;
 const EXPORT_SINGLE_SIZE = 640;
 const EXPORT_MINI_SIZE = 260;
 const EXPORT_GRID_CELL_SIZE = 320;
+
+const REEL_HOLES = Array.from({ length: 7 }, (_, i) => i);
+
+function formatDuration(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = Math.floor(totalSeconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
   const rows: T[][] = [];
@@ -82,13 +92,14 @@ function groupReactions(reactions: Reaction[] | undefined) {
   return Array.from(byEmoji.entries()).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
-export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, onPressLocation, polaroidRef, galleryRef, getAttachmentRef }: Props) {
+export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, onPressLocation, onPressVideo, polaroidRef, galleryRef, getAttachmentRef }: Props) {
   const time = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const grouped = groupReactions(message.reactions);
   const isImage = message.message_type === 'image';
   const isGallery = message.message_type === 'gallery';
   const isSpot = message.message_type === 'spot';
   const isLocation = message.message_type === 'location';
+  const isVideo = message.message_type === 'video';
   const imageSrc = message.local_uri || message.media_url;
   const attachments = message.attachments ?? [];
   const useGrid = message.gallery_layout === 'grid';
@@ -259,6 +270,42 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
           )}
           <Text style={[styles.time, styles.spotTime, isMine && styles.spotTimeMine]}>{time}</Text>
         </View>
+      ) : isVideo ? (
+        <View>
+          <Pressable
+            onLongPress={onLongPress}
+            delayLongPress={250}
+            onPress={() => imageSrc && !message.pending && onPressVideo?.(imageSrc)}
+            style={[styles.videoReelFrame, message.failed && styles.bubbleFailed]}>
+            <View style={styles.reelPerforationRow}>
+              {REEL_HOLES.map((i) => <View key={i} style={styles.reelHole} />)}
+            </View>
+            <View style={styles.reelBody}>
+              {message.pending && !message.failed ? (
+                <ActivityIndicator color={theme.color.cream} />
+              ) : (
+                <View style={styles.reelPlayBtn}><Ionicons name="play" size={20} color={theme.color.dusk} /></View>
+              )}
+              {message.video_duration_seconds != null && !message.pending && (
+                <View style={styles.reelDurationBadge}>
+                  <Text style={styles.reelDurationText}>{formatDuration(message.video_duration_seconds)}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.reelPerforationRow}>
+              {REEL_HOLES.map((i) => <View key={i} style={styles.reelHole} />)}
+            </View>
+          </Pressable>
+          {!!message.content && <Text style={styles.galleryCaption}>{message.content}</Text>}
+          {message.failed ? (
+            <Pressable onPress={onRetry} style={styles.polaroidRetryRow}>
+              <Ionicons name="alert-circle-outline" size={11} color={theme.color.ember} />
+              <Text style={styles.polaroidRetryText}>Failed — tap to retry</Text>
+            </Pressable>
+          ) : !message.pending ? (
+            <Text style={styles.galleryMeta}>{time}</Text>
+          ) : null}
+        </View>
       ) : (
         <>
         <Pressable onLongPress={onLongPress} delayLongPress={250} onPress={isImage && imageSrc ? () => onPressImage?.(imageSrc) : undefined}>
@@ -329,7 +376,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       )}
 
-      {!isImage && !isGallery && !isSpot && !isLocation && (
+      {!isImage && !isGallery && !isSpot && !isLocation && !isVideo && (
         <View style={[styles.metaRow, isMine ? styles.metaRowMine : styles.metaRowTheirs]}>
           {message.failed ? (
             <Pressable onPress={onRetry} style={styles.retryRow}>
@@ -397,6 +444,13 @@ const styles = StyleSheet.create({
   galleryMoreText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   galleryCaption: { fontFamily: theme.font.displayItalic, fontSize: 12.5, color: theme.color.cream, marginTop: 10, textAlign: 'center' },
   galleryMeta: { fontFamily: theme.font.mono, fontSize: 9, color: theme.color.muted, textAlign: 'center', marginTop: 6 },
+  videoReelFrame: { width: 200, borderRadius: theme.radius.sm, overflow: 'hidden', backgroundColor: '#0C0D10', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  reelPerforationRow: { flexDirection: 'row', justifyContent: 'space-evenly', paddingVertical: 5, backgroundColor: '#050506' },
+  reelHole: { width: 6, height: 6, borderRadius: 1.5, backgroundColor: theme.color.surface2 },
+  reelBody: { height: 174, alignItems: 'center', justifyContent: 'center' },
+  reelPlayBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
+  reelDurationBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 8, paddingVertical: 2, paddingHorizontal: 7 },
+  reelDurationText: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.cream },
   text: { fontFamily: theme.font.bodyRegular, fontSize: 14, lineHeight: 19 },
   textMine: { color: theme.color.dusk },
   textTheirs: { color: theme.color.cream },

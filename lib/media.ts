@@ -12,11 +12,11 @@ async function ensurePermission(): Promise<boolean> {
   return status === 'granted';
 }
 
-export async function saveRemoteImageToGallery(uri: string): Promise<boolean> {
+export async function saveRemoteMediaToGallery(uri: string, extension: string = 'jpg'): Promise<boolean> {
   if (!(await ensurePermission())) return false;
   let localUri = uri;
   if (uri.startsWith('http')) {
-    const destination = new File(Paths.cache, `wanderlens_${Date.now()}.jpg`);
+    const destination = new File(Paths.cache, `wanderlens_${Date.now()}.${extension}`);
     const downloaded = await File.downloadFileAsync(uri, destination);
     localUri = downloaded.uri;
   }

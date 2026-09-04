@@ -7,5 +7,10 @@ module.exports = ({ config }) => ({
       'expo-location',
       { locationWhenInUsePermission: 'Wanderlens uses your location to show nearby photo spots.' },
     ],
+    'expo-video',
+    [
+      'expo-audio',
+      { microphonePermission: 'Allow Wanderlens to access your microphone to record voice messages.' },
+    ],
   ],
 });
