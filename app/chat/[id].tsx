@@ -19,6 +19,7 @@ import { ImageViewer } from '@/components/ImageViewer';
 import { MessageBubble, type MessageItem } from '@/components/chat/MessageBubble';
 import { MessageComposer, type SendMode } from '@/components/chat/MessageComposer';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
+import { MessageSearchOverlay } from '@/components/chat/MessageSearchOverlay';
 import { RequestBanner } from '@/components/chat/RequestBanner';
 import { generateClientId } from '@/lib/chat';
 import { saveRemoteImageToGallery, saveViewAsImage } from '@/lib/media';
@@ -63,6 +64,7 @@ export default function ChatThread() {
   const [pickingImages, setPickingImages] = useState(false);
   const [sendMode, setSendMode] = useState<SendMode>('individual');
   const [sharingLocation, setSharingLocation] = useState(false);
+  const [searchVisible, setSearchVisible] = useState(false);
 
   const hasMoreRef = useRef(true);
   const polaroidRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
@@ -752,6 +754,9 @@ export default function ChatThread() {
             ) : null}
           </View>
         </Pressable>
+        <Pressable onPress={() => setSearchVisible(true)} style={styles.menuBtn}>
+          <Ionicons name="search-outline" size={19} color={theme.color.cream} />
+        </Pressable>
         <Pressable onPress={openMenu} style={styles.menuBtn}>
           <Ionicons name="ellipsis-vertical" size={18} color={theme.color.cream} />
         </Pressable>
@@ -881,6 +886,10 @@ export default function ChatThread() {
         }
         styledLabel="Save as polaroid"
       />
+
+      {id && myUserId && (
+        <MessageSearchOverlay visible={searchVisible} conversationId={id} myUserId={myUserId} onClose={() => setSearchVisible(false)} />
+      )}
     </ScreenBackground>
   );
 }
