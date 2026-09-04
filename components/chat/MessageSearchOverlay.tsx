@@ -6,7 +6,19 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 
-type SearchResult = { id: string; sender_id: string; content: string; created_at: string; sender_username: string | null; sender_full_name: string | null };
+type SearchResult = {
+  id: string;
+  sender_id: string;
+  message_type: 'text' | 'image' | 'gallery' | 'spot' | 'location';
+  display_text: string | null;
+  created_at: string;
+  sender_username: string | null;
+  sender_full_name: string | null;
+};
+
+const TYPE_ICON: Record<SearchResult['message_type'], string> = {
+  text: '', image: '📷 ', gallery: '📷 ', spot: '📍 ', location: '📍 ',
+};
 
 type Props = {
   visible: boolean;
@@ -74,7 +86,7 @@ export function MessageSearchOverlay({ visible, conversationId, myUserId, onClos
           renderItem={({ item }) => (
             <View style={styles.resultRow}>
               <Text style={styles.resultSender}>{item.sender_id === myUserId ? 'You' : (item.sender_username || item.sender_full_name || 'traveler')}</Text>
-              <Text style={styles.resultContent} numberOfLines={2}>{item.content}</Text>
+              <Text style={styles.resultContent} numberOfLines={2}>{TYPE_ICON[item.message_type]}{item.display_text}</Text>
               <Text style={styles.resultTime}>{formatTimeAgo(item.created_at)}</Text>
             </View>
           )}
