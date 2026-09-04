@@ -17,6 +17,8 @@ type Props = {
   onChangeText: (text: string) => void;
   onSend: () => void;
   onPickImage?: () => void;
+  onShareLocation?: () => void;
+  sharingLocation?: boolean;
   pickingImages?: boolean;
   pickedAssets?: PickedAsset[];
   onRemoveAsset?: (index: number) => void;
@@ -26,7 +28,7 @@ type Props = {
 };
 
 export function MessageComposer({
-  value, onChangeText, onSend, onPickImage, pickingImages, pickedAssets = [], onRemoveAsset,
+  value, onChangeText, onSend, onPickImage, onShareLocation, sharingLocation, pickingImages, pickedAssets = [], onRemoveAsset,
   sendMode = 'individual', onChangeSendMode, paddingBottom,
 }: Props) {
   const hasAssets = pickedAssets.length > 0;
@@ -68,6 +70,11 @@ export function MessageComposer({
         {onPickImage && (
           <Pressable onPress={onPickImage} disabled={pickingImages} style={styles.attachBtn}>
             <Ionicons name="image-outline" size={21} color={pickingImages ? theme.color.muted : theme.color.gold} />
+          </Pressable>
+        )}
+        {onShareLocation && (
+          <Pressable onPress={onShareLocation} disabled={sharingLocation} style={styles.attachBtn}>
+            {sharingLocation ? <ActivityIndicator size="small" color={theme.color.gold} /> : <Ionicons name="location-outline" size={21} color={theme.color.gold} />}
           </Pressable>
         )}
         <TextInput

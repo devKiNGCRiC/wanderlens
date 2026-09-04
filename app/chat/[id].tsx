@@ -1,15 +1,17 @@
 import { useState, useCallback, useRef, createRef, type RefObject } from 'react';
-import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert } from 'react-native';
+import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert, Linking, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { decode } from 'base64-arraybuffer';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { useChat } from '@/context/ChatProvider';
+import { useUserLocation } from '@/hooks/useUserLocation';
 import { Avatar } from '@/components/Avatar';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
@@ -37,6 +39,7 @@ export default function ChatThread() {
   const insets = useSafeAreaInsets();
   const { session, profile } = useAuth();
   const { refreshUnreadCount } = useChat();
+  const { refresh: refreshLocation } = useUserLocation();
 
   const [otherUser, setOtherUser] = useState<OtherUser | null>(null);
   const [otherLastReadAt, setOtherLastReadAt] = useState<string | null>(null);
@@ -59,6 +62,7 @@ export default function ChatThread() {
   const [pickedAssets, setPickedAssets] = useState<{ uri: string; base64: string }[]>([]);
   const [pickingImages, setPickingImages] = useState(false);
   const [sendMode, setSendMode] = useState<SendMode>('individual');
+  const [sharingLocation, setSharingLocation] = useState(false);
 
   const hasMoreRef = useRef(true);
   const polaroidRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
@@ -497,11 +501,81 @@ export default function ChatThread() {
     }
   }
 
+  async function shareLocation(retryOf?: LocalMessage) {
+    if (!session || !id) return;
+    if (!retryOf && sharingLocation) return;
+    const clientId = retryOf?.client_generated_id ?? generateClientId();
+    const tempId = retryOf?.id ?? `temp-${clientId}`;
+    let lat = retryOf?.location_lat ?? null;
+    let lng = retryOf?.location_lng ?? null;
+    let label = retryOf?.location_label ?? null;
+
+    if (retryOf) {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m)));
+    } else {
+      setSharingLocation(true);
+      const coords = await refreshLocation();
+      if (!coords) {
+        setSharingLocation(false);
+        Alert.alert('Location unavailable', 'Allow location access to share your location.');
+        return;
+      }
+      lat = coords.lat;
+      lng = coords.lng;
+      label = `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
+      try {
+        const [place] = await Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng });
+        const text = [place?.city || place?.subregion, place?.region, place?.country].filter(Boolean).join(', ');
+        if (text) label = text;
+      } catch {
+        // Keep the coordinate fallback label — geocoding is a nice-to-have here.
+      }
+      const temp: LocalMessage = {
+        id: tempId,
+        sender_id: session.user.id,
+        content: null,
+        created_at: new Date().toISOString(),
+        client_generated_id: clientId,
+        pending: true,
+        message_type: 'location',
+        location_lat: lat,
+        location_lng: lng,
+        location_label: label,
+      };
+      setMessages((prev) => [temp, ...prev]);
+      setSharingLocation(false);
+    }
+
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'location', location_lat: lat, location_lng: lng, location_label: label, client_generated_id: clientId })
+      .select()
+      .single();
+
+    if (error || !data) {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)));
+    } else {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, ...data, pending: false } : m)));
+      if (myStatus === 'request') setMyStatus('accepted');
+    }
+  }
+
+  function openInMaps(lat: number, lng: number) {
+    const url = Platform.select({
+      ios: `maps:0,0?q=${lat},${lng}`,
+      android: `geo:0,0?q=${lat},${lng}`,
+      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`,
+    });
+    if (url) Linking.openURL(url).catch(() => {});
+  }
+
   function handleRetry(item: LocalMessage) {
     if (item.message_type === 'image') {
       if (item._base64 && item.local_uri) sendImageMessage({ uri: item.local_uri, base64: item._base64 }, item);
     } else if (item.message_type === 'gallery') {
       if (item._base64s?.length) sendGalleryMessage([], '', item);
+    } else if (item.message_type === 'location') {
+      shareLocation(item);
     } else {
       sendMessage(item);
     }
@@ -707,6 +781,7 @@ export default function ChatThread() {
                   onPressImage={(uri, attIndex) => { setViewerUri(uri); setViewerMessage(item); setViewerAttachmentIndex(attIndex); }}
                   onSaveGallery={item.message_type === 'gallery' ? () => handleSaveGallery(item) : undefined}
                   onPressSpot={(spotId) => router.push({ pathname: '/spot/[id]', params: { id: spotId } })}
+                  onPressLocation={openInMaps}
                   polaroidRef={item.message_type === 'image' ? getPolaroidRef(item.id) : undefined}
                   galleryRef={item.message_type === 'gallery' ? getGalleryRef(item.id) : undefined}
                   getAttachmentRef={item.message_type === 'gallery' ? (index) => getAttachmentRef(item.id, index) : undefined}
@@ -746,6 +821,8 @@ export default function ChatThread() {
             onSend={handleSend}
             onPickImage={pickImages}
             pickingImages={pickingImages}
+            onShareLocation={() => shareLocation()}
+            sharingLocation={sharingLocation}
             pickedAssets={pickedAssets}
             onRemoveAsset={removePickedAsset}
             sendMode={sendMode}

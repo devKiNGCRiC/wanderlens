@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { SpotPreviewCard } from '@/components/chat/SpotPreviewCard';
+import { LocationPreviewCard } from '@/components/chat/LocationPreviewCard';
 
 export type Reaction = { emoji: string; user_id: string };
 
@@ -20,7 +21,7 @@ export type MessageItem = {
   reply_to_content?: string | null;
   reply_to_sender_name?: string | null;
   reactions?: Reaction[];
-  message_type?: 'text' | 'image' | 'gallery' | 'spot';
+  message_type?: 'text' | 'image' | 'gallery' | 'spot' | 'location';
   media_path?: string | null;
   media_url?: string | null;
   local_uri?: string | null;
@@ -31,6 +32,9 @@ export type MessageItem = {
   shared_spot_photo_url?: string | null;
   shared_spot_genre?: string | null;
   shared_spot_location_label?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_label?: string | null;
 };
 
 type Props = {
@@ -45,6 +49,7 @@ type Props = {
   onPressImage?: (uri: string, attachmentIndex?: number) => void;
   onSaveGallery?: () => void;
   onPressSpot?: (spotId: string) => void;
+  onPressLocation?: (lat: number, lng: number) => void;
   polaroidRef?: RefObject<View | null>;
   galleryRef?: RefObject<View | null>;
   getAttachmentRef?: (index: number) => RefObject<View | null>;
@@ -77,12 +82,13 @@ function groupReactions(reactions: Reaction[] | undefined) {
   return Array.from(byEmoji.entries()).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
-export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, polaroidRef, galleryRef, getAttachmentRef }: Props) {
+export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, onPressLocation, polaroidRef, galleryRef, getAttachmentRef }: Props) {
   const time = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const grouped = groupReactions(message.reactions);
   const isImage = message.message_type === 'image';
   const isGallery = message.message_type === 'gallery';
   const isSpot = message.message_type === 'spot';
+  const isLocation = message.message_type === 'location';
   const imageSrc = message.local_uri || message.media_url;
   const attachments = message.attachments ?? [];
   const useGrid = message.gallery_layout === 'grid';
@@ -236,6 +242,23 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
           )}
           <Text style={[styles.time, styles.spotTime, isMine && styles.spotTimeMine]}>{time}</Text>
         </View>
+      ) : isLocation ? (
+        <View>
+          <LocationPreviewCard
+            label={message.location_label ?? null}
+            lat={message.location_lat ?? 0}
+            lng={message.location_lng ?? 0}
+            onPress={() => {
+              if (message.location_lat != null && message.location_lng != null) onPressLocation?.(message.location_lat, message.location_lng);
+            }}
+          />
+          {!!message.content && (
+            <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs, styles.spotCaptionBubble]}>
+              <Text style={[styles.text, isMine ? styles.textMine : styles.textTheirs]}>{message.content}</Text>
+            </View>
+          )}
+          <Text style={[styles.time, styles.spotTime, isMine && styles.spotTimeMine]}>{time}</Text>
+        </View>
       ) : (
         <>
         <Pressable onLongPress={onLongPress} delayLongPress={250} onPress={isImage && imageSrc ? () => onPressImage?.(imageSrc) : undefined}>
@@ -306,7 +329,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       )}
 
-      {!isImage && !isGallery && !isSpot && (
+      {!isImage && !isGallery && !isSpot && !isLocation && (
         <View style={[styles.metaRow, isMine ? styles.metaRowMine : styles.metaRowTheirs]}>
           {message.failed ? (
             <Pressable onPress={onRetry} style={styles.retryRow}>
