@@ -8,6 +8,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
 import { ScreenBackground } from '@/components/ScreenBackground';
+import { ActionSheet } from '@/components/ActionSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 
 type SpotDetail = {
@@ -44,6 +45,8 @@ export default function SpotDetail() {
   const [replyingTo, setReplyingTo] = useState<{ id: string; handle: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewerVisible, setViewerVisible] = useState(false);
+  const [commentActionTarget, setCommentActionTarget] = useState<CommentRow | null>(null);
+  const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -103,6 +106,44 @@ export default function SpotDetail() {
       spot_id: spot.id, user_id: session.user.id, content: commentText.trim(), parent_comment_id: replyingTo?.id ?? null,
     });
     if (!error) { setCommentText(''); setReplyingTo(null); load(); }
+  }
+
+  function openCommentActions(comment: CommentRow) {
+    if (!session) return;
+    const isMine = comment.user_id === session.user.id;
+    const isSpotOwner = spot?.created_by === session.user.id;
+    if (!isMine && !isSpotOwner) return;
+    setCommentActionTarget(comment);
+  }
+
+  function startEditComment(comment: CommentRow) {
+    setEditingComment({ id: comment.id, text: comment.content });
+  }
+
+  async function saveEditComment() {
+    if (!editingComment || !editingComment.text.trim()) return;
+    const { error } = await supabase.from('spot_comments').update({ content: editingComment.text.trim() }).eq('id', editingComment.id);
+    setEditingComment(null);
+    if (!error) load();
+    else Alert.alert('Could not save', 'Please try again.');
+  }
+
+  function deleteComment(comment: CommentRow) {
+    Alert.alert('Delete this comment?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          // Replies aren't guaranteed to cascade-delete with their parent —
+          // remove them explicitly first regardless of the live FK config.
+          await supabase.from('spot_comments').delete().eq('parent_comment_id', comment.id);
+          const { error } = await supabase.from('spot_comments').delete().eq('id', comment.id);
+          if (error) Alert.alert('Could not delete', 'Please try again.');
+          load();
+        },
+      },
+    ]);
   }
 
   function handleShare() {
@@ -203,7 +244,7 @@ export default function SpotDetail() {
 
           {grouped.map((c) => (
             <View key={c.id} style={{ marginBottom: 16 }}>
-              <View style={styles.commentRow}>
+              <Pressable style={styles.commentRow} onLongPress={() => openCommentActions(c)} delayLongPress={250}>
                 <Pressable onPress={() => goToProfile(c.user_id)}>
                   <View style={styles.commentAvatar}>
                     {c.avatar_url ? <Image source={{ uri: c.avatar_url }} style={styles.commentAvatarImage} /> : <Text style={styles.commentAvatarText}>{nameOf(c).charAt(0).toUpperCase()}</Text>}
@@ -211,22 +252,40 @@ export default function SpotDetail() {
                 </Pressable>
                 <View style={{ flex: 1 }}>
                   <Pressable onPress={() => goToProfile(c.user_id)}><Text style={styles.commentName}>{nameOf(c)}</Text></Pressable>
-                  <Text style={styles.commentText}>{c.content}</Text>
-                  <View style={styles.commentActionsRow}>
-                    <Text style={styles.commentTimeAgo}>{formatTimeAgo(c.created_at)}</Text>
-                    <Pressable onPress={() => setReplyingTo({ id: c.id, handle: nameOf(c) })}>
-                      <Text style={styles.commentActionText}>Reply</Text>
-                    </Pressable>
-                  </View>
+                  {editingComment?.id === c.id ? (
+                    <View>
+                      <TextInput
+                        style={styles.commentEditInput}
+                        value={editingComment.text}
+                        onChangeText={(text) => setEditingComment({ id: c.id, text })}
+                        multiline
+                        autoFocus
+                      />
+                      <View style={styles.commentActionsRow}>
+                        <Pressable onPress={() => setEditingComment(null)}><Text style={styles.commentActionText}>Cancel</Text></Pressable>
+                        <Pressable onPress={saveEditComment}><Text style={[styles.commentActionText, { color: theme.color.gold }]}>Save</Text></Pressable>
+                      </View>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.commentText}>{c.content}</Text>
+                      <View style={styles.commentActionsRow}>
+                        <Text style={styles.commentTimeAgo}>{formatTimeAgo(c.created_at)}</Text>
+                        <Pressable onPress={() => setReplyingTo({ id: c.id, handle: nameOf(c) })}>
+                          <Text style={styles.commentActionText}>Reply</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  )}
                 </View>
                 <Pressable onPress={() => toggleCommentLike(c)} style={styles.commentLikeCol}>
                   <Ionicons name={c.liked_by_me ? 'heart' : 'heart-outline'} size={14} color={c.liked_by_me ? theme.color.ember : theme.color.muted} />
                   {c.like_count > 0 && <Text style={styles.commentLikeCount}>{c.like_count}</Text>}
                 </Pressable>
-              </View>
+              </Pressable>
 
               {c.replies.map((r) => (
-                <View key={r.id} style={[styles.commentRow, { marginLeft: 40, marginTop: 10 }]}>
+                <Pressable key={r.id} style={[styles.commentRow, { marginLeft: 40, marginTop: 10 }]} onLongPress={() => openCommentActions(r)} delayLongPress={250}>
                   <Pressable onPress={() => goToProfile(r.user_id)}>
                     <View style={styles.replyAvatar}>
                       {r.avatar_url ? <Image source={{ uri: r.avatar_url }} style={styles.commentAvatarImage} /> : <Text style={styles.replyAvatarText}>{nameOf(r).charAt(0).toUpperCase()}</Text>}
@@ -234,19 +293,37 @@ export default function SpotDetail() {
                   </Pressable>
                   <View style={{ flex: 1 }}>
                     <Pressable onPress={() => goToProfile(r.user_id)}><Text style={styles.commentName}>{nameOf(r)}</Text></Pressable>
-                    <Text style={styles.commentText}>{r.content}</Text>
-                    <View style={styles.commentActionsRow}>
-                      <Text style={styles.commentTimeAgo}>{formatTimeAgo(r.created_at)}</Text>
-                      <Pressable onPress={() => setReplyingTo({ id: c.id, handle: nameOf(r) })}>
-                        <Text style={styles.commentActionText}>Reply</Text>
-                      </Pressable>
-                    </View>
+                    {editingComment?.id === r.id ? (
+                      <View>
+                        <TextInput
+                          style={styles.commentEditInput}
+                          value={editingComment.text}
+                          onChangeText={(text) => setEditingComment({ id: r.id, text })}
+                          multiline
+                          autoFocus
+                        />
+                        <View style={styles.commentActionsRow}>
+                          <Pressable onPress={() => setEditingComment(null)}><Text style={styles.commentActionText}>Cancel</Text></Pressable>
+                          <Pressable onPress={saveEditComment}><Text style={[styles.commentActionText, { color: theme.color.gold }]}>Save</Text></Pressable>
+                        </View>
+                      </View>
+                    ) : (
+                      <>
+                        <Text style={styles.commentText}>{r.content}</Text>
+                        <View style={styles.commentActionsRow}>
+                          <Text style={styles.commentTimeAgo}>{formatTimeAgo(r.created_at)}</Text>
+                          <Pressable onPress={() => setReplyingTo({ id: c.id, handle: nameOf(r) })}>
+                            <Text style={styles.commentActionText}>Reply</Text>
+                          </Pressable>
+                        </View>
+                      </>
+                    )}
                   </View>
                   <Pressable onPress={() => toggleCommentLike(r)} style={styles.commentLikeCol}>
                     <Ionicons name={r.liked_by_me ? 'heart' : 'heart-outline'} size={13} color={r.liked_by_me ? theme.color.ember : theme.color.muted} />
                     {r.like_count > 0 && <Text style={styles.commentLikeCount}>{r.like_count}</Text>}
                   </Pressable>
-                </View>
+                </Pressable>
               ))}
             </View>
           ))}
@@ -266,6 +343,17 @@ export default function SpotDetail() {
       </View>
 
       <ImageViewer visible={viewerVisible} uri={spot.photo_url} onClose={() => setViewerVisible(false)} />
+
+      <ActionSheet
+        visible={!!commentActionTarget}
+        onClose={() => setCommentActionTarget(null)}
+        options={[
+          ...(commentActionTarget?.user_id === session?.user.id
+            ? [{ key: 'edit', label: 'Edit', icon: 'create-outline' as const, onPress: () => commentActionTarget && startEditComment(commentActionTarget) }]
+            : []),
+          { key: 'delete', label: 'Delete', icon: 'trash-outline' as const, destructive: true, onPress: () => commentActionTarget && deleteComment(commentActionTarget) },
+        ]}
+      />
     </KeyboardAvoidingView>
     </ScreenBackground>
   );
@@ -302,6 +390,7 @@ const styles = StyleSheet.create({
   replyAvatarText: { fontFamily: theme.font.display, fontSize: 10, color: theme.color.gold },
   commentName: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.cream },
   commentText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, marginTop: 2 },
+  commentEditInput: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.cream, marginTop: 2, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.sm, padding: 8 },
   commentActionsRow: { flexDirection: 'row', gap: 14, marginTop: 5 },
   commentTimeAgo: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted },
   commentActionText: { fontFamily: theme.font.body, fontSize: 11, color: theme.color.gold },
