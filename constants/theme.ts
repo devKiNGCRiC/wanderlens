@@ -8,6 +8,8 @@ export const theme = {
     duskPurple: '#4B3F72',
     cream: '#F6F1E7',
     muted: '#9AA0B4',
+    // Subtle gold-tinted surface highlight — e.g. an unread row background.
+    goldTint: 'rgba(232,166,76,0.06)',
   },
   font: {
     display: 'Fraunces_500Medium',

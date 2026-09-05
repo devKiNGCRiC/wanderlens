@@ -2,10 +2,12 @@ import { useState, useCallback } from 'react';
 import { View, Text, Image, Pressable, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserLocation } from '@/hooks/useUserLocation';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
+import { useNotifications } from '@/context/NotificationsProvider';
 import { supabase } from '@/lib/supabase';
 import { PolaroidCard } from '@/components/PolaroidCard';
 import { ScreenBackground } from '@/components/ScreenBackground';
@@ -30,6 +32,8 @@ export default function FeedScreen() {
   const { session, profile } = useAuth();
   const firstName = profile?.username || profile?.full_name?.split(' ')[0] || 'there';
   const { refresh: refreshLocation } = useUserLocation();
+  const { unreadCount } = useNotifications();
+  const insets = useSafeAreaInsets();
 
   const [nearbySpots, setNearbySpots] = useState<NearbySpot[]>([]);
   const [photographers, setPhotographers] = useState<Photographer[]>([]);
@@ -108,6 +112,17 @@ export default function FeedScreen() {
             <View style={styles.hero}>
               <LinearGradient colors={['#C9683E', '#7A4A5E', '#2E2745', 'transparent']} locations={[0, 0.45, 0.8, 1]} start={{ x: 0.2, y: 0 }} end={{ x: 0.5, y: 1 }} style={StyleSheet.absoluteFill} />
               <View style={styles.sun} />
+              <Pressable
+                onPress={() => router.push('/notifications')}
+                style={[styles.bellBtn, { top: insets.top + 10 }]}
+                accessibilityLabel={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}>
+                <Ionicons name="notifications-outline" size={20} color={theme.color.cream} />
+                {unreadCount > 0 && (
+                  <View style={styles.bellBadge}>
+                    <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                  </View>
+                )}
+              </Pressable>
               <View style={styles.heroText}>
                 <Text style={styles.eyebrow}>GOLDEN HOUR · SOON</Text>
                 <Text style={styles.headline}>Chase the <Text style={styles.headlineBold}>light</Text>,{'\n'}{firstName}.</Text>
@@ -221,6 +236,9 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   hero: { height: 320, overflow: 'hidden' },
   sun: { position: 'absolute', top: 64, right: 52, width: 64, height: 64, borderRadius: 32, backgroundColor: theme.color.gold, opacity: 0.9 },
+  bellBtn: { position: 'absolute', left: 16, width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(20,23,31,0.4)', alignItems: 'center', justifyContent: 'center' },
+  bellBadge: { position: 'absolute', top: -2, right: -2, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  bellBadgeText: { fontFamily: theme.font.body, fontSize: 9, color: theme.color.cream },
   heroText: { position: 'absolute', left: 26, right: 26, bottom: 26 },
   eyebrow: { fontFamily: theme.font.mono, fontSize: 11, letterSpacing: 1, color: theme.color.gold, marginBottom: 8 },
   headline: { fontFamily: theme.font.displayItalic, fontSize: 30, lineHeight: 34, color: theme.color.cream },

@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
@@ -28,7 +28,18 @@ function handleOf(p: { username?: string | null; full_name?: string | null }) {
 export default function ConnectScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const { segment: paramSegment } = useLocalSearchParams<{ segment?: string }>();
   const [segment, setSegment] = useState<Segment>('Discover');
+
+  // The notification bell deep-links here with a `segment` param (e.g. tapping
+  // a "connect_accepted" notification should land on Connections, not whatever
+  // segment happened to be active) — this tab stays mounted between visits, so
+  // a plain useState initializer alone wouldn't pick up a later navigation.
+  useEffect(() => {
+    if (paramSegment && (SEGMENTS as readonly string[]).includes(paramSegment)) {
+      setSegment(paramSegment as Segment);
+    }
+  }, [paramSegment]);
   const [people, setPeople] = useState<Person[]>([]);
   const [requests, setRequests] = useState<ConnectionRow[]>([]);
   const [connections, setConnections] = useState<ConnectionRow[]>([]);

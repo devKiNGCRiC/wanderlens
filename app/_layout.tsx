@@ -7,6 +7,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthProvider';
 import { ChatProvider } from '@/context/ChatProvider';
+import { NotificationsProvider } from '@/context/NotificationsProvider';
 import { SplashLoading } from '@/components/SplashLoading';
 
 import { useFonts, Fraunces_500Medium, Fraunces_500Medium_Italic } from '@expo-google-fonts/fraunces';
@@ -60,10 +61,12 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <ChatProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <RootNavigator />
-          <StatusBar style="auto" />
-        </ThemeProvider>
+        <NotificationsProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <RootNavigator />
+            <StatusBar style="auto" />
+          </ThemeProvider>
+        </NotificationsProvider>
       </ChatProvider>
     </AuthProvider>
   );
