@@ -109,7 +109,7 @@ export default function ChatThread() {
     type Target = { path: string; rowId: string; attIndex?: number };
     const targets: Target[] = [];
     rows.forEach((r) => {
-      if ((r.message_type === 'image' || r.message_type === 'video') && r.media_path && !r.media_url && !r.local_uri) {
+      if ((r.message_type === 'image' || r.message_type === 'video' || r.message_type === 'voice') && r.media_path && !r.media_url && !r.local_uri) {
         targets.push({ path: r.media_path, rowId: r.id });
       }
       if (r.message_type === 'gallery') {
@@ -512,6 +512,50 @@ export default function ChatThread() {
     }
   }
 
+  async function sendVoiceMessage(asset: { uri: string; durationSeconds: number | null }, retryOf?: LocalMessage) {
+    if (!session || !id) return;
+    const clientId = retryOf?.client_generated_id ?? generateClientId();
+    const tempId = retryOf?.id ?? `temp-${clientId}`;
+    const duration = retryOf ? (retryOf.voice_duration_seconds ?? null) : asset.durationSeconds;
+
+    if (retryOf) {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m)));
+    } else {
+      const temp: LocalMessage = {
+        id: tempId,
+        sender_id: session.user.id,
+        content: null,
+        created_at: new Date().toISOString(),
+        client_generated_id: clientId,
+        pending: true,
+        message_type: 'voice',
+        local_uri: asset.uri,
+        voice_duration_seconds: duration,
+      };
+      setMessages((prev) => [temp, ...prev]);
+    }
+
+    try {
+      const path = `${id}/${session.user.id}_${Date.now()}.m4a`;
+      const response = await fetch(asset.uri);
+      const arrayBuffer = await response.arrayBuffer();
+      const { error: uploadError } = await supabase.storage.from(MEDIA_BUCKET).upload(path, arrayBuffer, { contentType: 'audio/m4a' });
+      if (uploadError) throw uploadError;
+
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'voice', media_path: path, voice_duration_seconds: duration, client_generated_id: clientId })
+        .select()
+        .single();
+      if (error || !data) throw error ?? new Error('insert failed');
+
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, ...data, pending: false } : m)));
+      if (myStatus === 'request') setMyStatus('accepted');
+    } catch {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)));
+    }
+  }
+
   async function sendGalleryMessage(assets: { uri: string; base64: string }[], caption: string, retryOf?: LocalMessage, layout?: 'collage' | 'grid') {
     if (!session || !id) return;
     const clientId = retryOf?.client_generated_id ?? generateClientId();
@@ -642,6 +686,8 @@ export default function ChatThread() {
       shareLocation(item);
     } else if (item.message_type === 'video') {
       if (item.local_uri) sendVideoMessage({ uri: item.local_uri, durationSeconds: item.video_duration_seconds ?? null }, item);
+    } else if (item.message_type === 'voice') {
+      if (item.local_uri) sendVoiceMessage({ uri: item.local_uri, durationSeconds: item.voice_duration_seconds ?? null }, item);
     } else {
       sendMessage(item);
     }
@@ -899,6 +945,7 @@ export default function ChatThread() {
             onRemoveAsset={removePickedAsset}
             sendMode={sendMode}
             onChangeSendMode={setSendMode}
+            onSendVoice={(uri, durationSeconds) => sendVoiceMessage({ uri, durationSeconds })}
             paddingBottom={Math.max(insets.bottom, 16) + 16}
           />
         )}

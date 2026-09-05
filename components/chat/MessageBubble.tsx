@@ -1,7 +1,8 @@
-import type { RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import { theme } from '@/constants/theme';
 import { SpotPreviewCard } from '@/components/chat/SpotPreviewCard';
 import { LocationPreviewCard } from '@/components/chat/LocationPreviewCard';
@@ -21,11 +22,12 @@ export type MessageItem = {
   reply_to_content?: string | null;
   reply_to_sender_name?: string | null;
   reactions?: Reaction[];
-  message_type?: 'text' | 'image' | 'gallery' | 'spot' | 'location' | 'video';
+  message_type?: 'text' | 'image' | 'gallery' | 'spot' | 'location' | 'video' | 'voice';
   media_path?: string | null;
   media_url?: string | null;
   local_uri?: string | null;
   video_duration_seconds?: number | null;
+  voice_duration_seconds?: number | null;
   gallery_layout?: 'collage' | 'grid' | null;
   attachments?: { id?: string; media_path?: string; media_url?: string; local_uri?: string }[];
   shared_spot_id?: string | null;
@@ -69,6 +71,10 @@ const EXPORT_GRID_CELL_SIZE = 320;
 
 const REEL_HOLES = Array.from({ length: 7 }, (_, i) => i);
 
+// Shared across every voice bubble mounted in the thread — pressing play on
+// one pauses whichever other voice message was playing, WhatsApp-style.
+let activeVoicePlayer: AudioPlayer | null = null;
+
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = Math.floor(totalSeconds % 60);
@@ -100,11 +106,52 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
   const isSpot = message.message_type === 'spot';
   const isLocation = message.message_type === 'location';
   const isVideo = message.message_type === 'video';
+  const isVoice = message.message_type === 'voice';
   const imageSrc = message.local_uri || message.media_url;
   const attachments = message.attachments ?? [];
   const useGrid = message.gallery_layout === 'grid';
   const visibleAttachments = attachments.slice(0, useGrid ? 4 : 6);
   const extraCount = attachments.length - visibleAttachments.length;
+
+  const voicePlayerRef = useRef<AudioPlayer | null>(null);
+  const [voicePlaying, setVoicePlaying] = useState(false);
+  const [voicePosition, setVoicePosition] = useState(0);
+
+  useEffect(() => {
+    return () => {
+      if (activeVoicePlayer === voicePlayerRef.current) activeVoicePlayer = null;
+      voicePlayerRef.current?.remove();
+      voicePlayerRef.current = null;
+    };
+  }, []);
+
+  function toggleVoicePlayback() {
+    if (!imageSrc || message.pending) return;
+    if (!voicePlayerRef.current) {
+      const player = createAudioPlayer(imageSrc);
+      player.addListener('playbackStatusUpdate', (status) => {
+        setVoicePosition(status.currentTime);
+        setVoicePlaying(status.playing);
+        if (status.didJustFinish) {
+          setVoicePosition(0);
+          player.seekTo(0);
+          if (activeVoicePlayer === player) activeVoicePlayer = null;
+        }
+      });
+      voicePlayerRef.current = player;
+    }
+    const player = voicePlayerRef.current;
+    if (player.playing) {
+      player.pause();
+    } else {
+      if (activeVoicePlayer && activeVoicePlayer !== player) activeVoicePlayer.pause();
+      activeVoicePlayer = player;
+      player.play();
+    }
+  }
+
+  const voiceDuration = message.voice_duration_seconds ?? 0;
+  const voiceProgress = voiceDuration > 0 ? Math.min(voicePosition / voiceDuration, 1) : 0;
 
   return (
     <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
@@ -306,6 +353,41 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
             <Text style={styles.galleryMeta}>{time}</Text>
           ) : null}
         </View>
+      ) : isVoice ? (
+        <View>
+          <Pressable
+            onLongPress={onLongPress}
+            delayLongPress={250}
+            onPress={toggleVoicePlayback}
+            style={[styles.voiceCassette, message.failed && styles.bubbleFailed]}>
+            <View style={styles.voicePlayBtn}>
+              {(message.pending || (!imageSrc && !message.failed)) ? (
+                <ActivityIndicator size="small" color={theme.color.dusk} />
+              ) : (
+                <Ionicons name={voicePlaying ? 'pause' : 'play'} size={16} color={theme.color.dusk} />
+              )}
+            </View>
+            <View style={styles.voiceTrack}>
+              <View style={styles.voiceTrackLine} />
+              <View style={[styles.voiceTrackFill, { width: `${voiceProgress * 100}%` }]} />
+              <View style={styles.voiceReelDot} />
+              <View style={[styles.voiceReelDot, styles.voiceReelDotRight]} />
+            </View>
+            {message.voice_duration_seconds != null && (
+              <Text style={styles.voiceDuration}>
+                {formatDuration(voicePlaying || voicePosition > 0 ? Math.max(0, Math.round(voiceDuration - voicePosition)) : voiceDuration)}
+              </Text>
+            )}
+          </Pressable>
+          {message.failed ? (
+            <Pressable onPress={onRetry} style={styles.polaroidRetryRow}>
+              <Ionicons name="alert-circle-outline" size={11} color={theme.color.ember} />
+              <Text style={styles.polaroidRetryText}>Failed — tap to retry</Text>
+            </Pressable>
+          ) : !message.pending ? (
+            <Text style={styles.galleryMeta}>{time}</Text>
+          ) : null}
+        </View>
       ) : (
         <>
         <Pressable onLongPress={onLongPress} delayLongPress={250} onPress={isImage && imageSrc ? () => onPressImage?.(imageSrc) : undefined}>
@@ -376,7 +458,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       )}
 
-      {!isImage && !isGallery && !isSpot && !isLocation && !isVideo && (
+      {!isImage && !isGallery && !isSpot && !isLocation && !isVideo && !isVoice && (
         <View style={[styles.metaRow, isMine ? styles.metaRowMine : styles.metaRowTheirs]}>
           {message.failed ? (
             <Pressable onPress={onRetry} style={styles.retryRow}>
@@ -451,6 +533,14 @@ const styles = StyleSheet.create({
   reelPlayBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
   reelDurationBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 8, paddingVertical: 2, paddingHorizontal: 7 },
   reelDurationText: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.cream },
+  voiceCassette: { flexDirection: 'row', alignItems: 'center', gap: 10, width: 210, backgroundColor: '#20242F', borderRadius: 22, paddingVertical: 10, paddingHorizontal: 12, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  voicePlayBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
+  voiceTrack: { flex: 1, height: 20, justifyContent: 'center' },
+  voiceTrackLine: { position: 'absolute', left: 6, right: 6, height: 3, borderRadius: 1.5, backgroundColor: theme.color.surface2 },
+  voiceTrackFill: { position: 'absolute', left: 6, height: 3, borderRadius: 1.5, backgroundColor: theme.color.gold },
+  voiceReelDot: { position: 'absolute', left: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: theme.color.surface2 },
+  voiceReelDotRight: { left: undefined, right: 0 },
+  voiceDuration: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.muted },
   text: { fontFamily: theme.font.bodyRegular, fontSize: 14, lineHeight: 19 },
   textMine: { color: theme.color.dusk },
   textTheirs: { color: theme.color.cream },
