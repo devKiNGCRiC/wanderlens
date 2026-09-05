@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useNotifications } from '@/context/NotificationsProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
+import { Avatar } from '@/components/Avatar';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 
 type NotificationRow = {
@@ -15,14 +17,34 @@ type NotificationRow = {
   title: string;
   body: string | null;
   related_id: string | null;
+  related_comment_id: string | null;
   is_read: boolean;
   created_at: string;
+  actor_id: string | null;
+  actor_username: string | null;
+  actor_full_name: string | null;
+  actor_avatar_url: string | null;
+  spot_title: string | null;
+  spot_photo_url: string | null;
 };
 
+const SPOT_TYPES = new Set(['spot_like', 'spot_comment', 'comment_reply', 'comment_like', 'spot_shared']);
+
 function iconFor(type: string): keyof typeof Ionicons.glyphMap {
-  if (type === 'connect_request') return 'person-add-outline';
-  if (type === 'connect_accepted') return 'checkmark-circle-outline';
-  return 'notifications-outline';
+  if (type === 'connect_request') return 'person-add';
+  if (type === 'connect_accepted') return 'checkmark-circle';
+  if (type === 'spot_like' || type === 'comment_like') return 'heart';
+  if (type === 'spot_comment' || type === 'comment_reply') return 'chatbubble';
+  if (type === 'spot_shared') return 'arrow-redo';
+  if (type === 'message_request') return 'mail';
+  return 'notifications';
+}
+
+function badgeColorFor(type: string): string {
+  if (type === 'spot_like' || type === 'comment_like') return theme.color.ember;
+  if (type === 'spot_comment' || type === 'comment_reply') return theme.color.duskPurple;
+  if (type === 'message_request') return theme.color.gold;
+  return theme.color.gold;
 }
 
 export default function NotificationsScreen() {
@@ -54,6 +76,25 @@ export default function NotificationsScreen() {
       load();
     }, [load])
   );
+
+  function handlePress(item: NotificationRow) {
+    if (item.type === 'connect_request' || item.type === 'connect_accepted') {
+      router.push({ pathname: '/(tabs)/connect', params: { segment: item.type === 'connect_request' ? 'Requests' : 'Connections' } });
+      return;
+    }
+    if (item.type === 'message_request') {
+      if (item.related_id) router.push({ pathname: '/chat/[id]', params: { id: item.related_id } });
+      return;
+    }
+    if (SPOT_TYPES.has(item.type)) {
+      // spot_title comes back null if the spot itself was deleted — nothing
+      // sensible to navigate to in that case, just show the stored text.
+      if (item.related_id && item.spot_title) {
+        router.push({ pathname: '/spot/[id]', params: { id: item.related_id } });
+      }
+      return;
+    }
+  }
 
   return (
     <ScreenBackground>
@@ -87,17 +128,27 @@ export default function NotificationsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
-            <Pressable
-              onPress={() => router.push({ pathname: '/(tabs)/connect', params: { segment: item.type === 'connect_request' ? 'Requests' : 'Connections' } })}
-              style={[styles.row, !item.is_read && styles.rowUnread]}>
-              <View style={styles.iconWrap}>
-                <Ionicons name={iconFor(item.type)} size={19} color={theme.color.dusk} />
-              </View>
+            <Pressable onPress={() => handlePress(item)} style={[styles.row, !item.is_read && styles.rowUnread]}>
+              {item.actor_id ? (
+                <View style={styles.avatarWrap}>
+                  <Avatar uri={item.actor_avatar_url} label={item.actor_username || item.actor_full_name || '?'} size={40} />
+                  <View style={[styles.typeBadge, { backgroundColor: badgeColorFor(item.type) }]}>
+                    <Ionicons name={iconFor(item.type)} size={10} color={theme.color.dusk} />
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.iconWrap}>
+                  <Ionicons name={iconFor(item.type)} size={19} color={theme.color.dusk} />
+                </View>
+              )}
               <View style={styles.rowText}>
                 <Text style={styles.rowTitle}>{item.title}</Text>
                 {!!item.body && <Text style={styles.rowBody} numberOfLines={2}>{item.body}</Text>}
                 <Text style={styles.rowTime}>{formatTimeAgo(item.created_at)}</Text>
               </View>
+              {item.spot_photo_url && (
+                <Image source={{ uri: item.spot_photo_url }} style={styles.spotThumb} contentFit="cover" />
+              )}
               {!item.is_read && <View style={styles.unreadDot} />}
             </Pressable>
           )}
@@ -119,9 +170,12 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.color.surface2 },
   rowUnread: { backgroundColor: theme.color.goldTint },
   iconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
+  avatarWrap: { width: 40, height: 40 },
+  typeBadge: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: theme.color.dusk },
   rowText: { flex: 1, gap: 2 },
   rowTitle: { fontFamily: theme.font.body, fontSize: 14, color: theme.color.cream },
   rowBody: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted },
   rowTime: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.muted, marginTop: 2 },
+  spotThumb: { width: 40, height: 40, borderRadius: theme.radius.sm, backgroundColor: theme.color.surface2 },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.color.ember, marginTop: 6 },
 });

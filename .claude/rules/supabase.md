@@ -9,13 +9,25 @@ because this is native.
 **Tables, with client code today:** `profiles`, `spots`, `spot_likes`,
 `spot_comments`, `comment_likes`, `saved_spots`, `connections`, `trails`
 
-**Tables, schema + RLS built but no client code yet — this is the chat
-feature, see `ROADMAP.md`:** `conversations`, `conversation_members`,
-`messages`, `notifications` (already populated by triggers on connection
-events). Don't treat these as unused/dead schema to clean up.
+**Chat feature (built):** `conversations`, `conversation_members`, `messages` —
+see `.claude/rules/architecture.md` and the migrations under
+`supabase/migrations/` for the full phase history (media types, groups,
+search, etc.).
+
+**`notifications`** — powers the in-app bell (`app/notifications.tsx`,
+`context/NotificationsProvider.tsx`). `type` values in use: `connect_request`,
+`connect_accepted` (populated by a pre-existing live trigger whose SQL
+predates this repo's migration tracking — do not try to modify it blind) and,
+as of `supabase/migrations/20260921000000_notifications_social_events.sql`,
+`spot_like`, `spot_comment`, `comment_reply`, `comment_like`, `spot_shared`,
+`message_request` (all populated by new triggers on `spot_likes`,
+`spot_comments`, `comment_likes`, and `messages` respectively). The newer
+types also populate `actor_id` (who did the action) and, for `comment_like`,
+`related_comment_id` — the older connect-event rows leave both null.
 
 **RPCs:** `feed_spots`, `nearby_spots`, `nearby_photographers`, `discover_people`,
-`get_spot`, `get_spot_comments`, `get_saved_spots`, `get_connection_status`.
+`get_spot`, `get_spot_comments`, `get_saved_spots`, `get_connection_status`,
+`get_notifications`, `get_unread_notification_count`, `mark_notifications_read`.
 Also a `handle_new_user` trigger that auto-creates a `profiles` row on signup.
 
 **Storage buckets:** `spot-photos`, `profile-media` — both public-read, insert
