@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Pressable, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Pressable, FlatList, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,7 @@ import { theme } from '@/constants/theme';
 import { useNotifications } from '@/context/NotificationsProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { Avatar } from '@/components/Avatar';
+import { ActionSheet } from '@/components/ActionSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 
 type NotificationRow = {
@@ -54,6 +55,7 @@ export default function NotificationsScreen() {
   const [items, setItems] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [actionTarget, setActionTarget] = useState<NotificationRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +98,38 @@ export default function NotificationsScreen() {
     }
   }
 
+  async function deleteOne(item: NotificationRow) {
+    setItems((prev) => prev.filter((n) => n.id !== item.id));
+    const { error } = await supabase.rpc('delete_notification', { p_id: item.id });
+    if (error) {
+      Alert.alert('Could not delete', 'Please try again.');
+      load();
+      return;
+    }
+    if (!item.is_read) refreshUnreadCount();
+  }
+
+  function clearAll() {
+    Alert.alert('Clear all notifications?', 'This removes every notification from your activity feed. This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear all',
+        style: 'destructive',
+        onPress: async () => {
+          const previous = items;
+          setItems([]);
+          const { error } = await supabase.rpc('clear_all_notifications');
+          if (error) {
+            Alert.alert('Could not clear', 'Please try again.');
+            setItems(previous);
+            return;
+          }
+          refreshUnreadCount();
+        },
+      },
+    ]);
+  }
+
   return (
     <ScreenBackground>
       <Stack.Screen options={{ headerShown: false }} />
@@ -104,7 +138,13 @@ export default function NotificationsScreen() {
           <Ionicons name="chevron-back" size={22} color={theme.color.cream} />
         </Pressable>
         <Text style={styles.title}>Notifications</Text>
-        <View style={styles.backBtn} />
+        {items.length > 0 ? (
+          <Pressable onPress={clearAll} style={styles.clearBtn} accessibilityLabel="Clear all notifications">
+            <Text style={styles.clearText}>Clear all</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.backBtn} />
+        )}
       </View>
 
       {loading ? (
@@ -128,7 +168,11 @@ export default function NotificationsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
-            <Pressable onPress={() => handlePress(item)} style={[styles.row, !item.is_read && styles.rowUnread]}>
+            <Pressable
+              onPress={() => handlePress(item)}
+              onLongPress={() => setActionTarget(item)}
+              delayLongPress={250}
+              style={[styles.row, !item.is_read && styles.rowUnread]}>
               {item.actor_id ? (
                 <View style={styles.avatarWrap}>
                   <Avatar uri={item.actor_avatar_url} label={item.actor_username || item.actor_full_name || '?'} size={40} />
@@ -154,6 +198,14 @@ export default function NotificationsScreen() {
           )}
         />
       )}
+
+      <ActionSheet
+        visible={!!actionTarget}
+        onClose={() => setActionTarget(null)}
+        options={[
+          { key: 'delete', label: 'Delete notification', icon: 'trash-outline', destructive: true, onPress: () => actionTarget && deleteOne(actionTarget) },
+        ]}
+      />
     </ScreenBackground>
   );
 }
@@ -161,6 +213,8 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  clearBtn: { paddingHorizontal: 4, paddingVertical: 8 },
+  clearText: { fontFamily: theme.font.body, fontSize: 12, color: theme.color.gold },
   title: { fontFamily: theme.font.display, fontSize: 18, color: theme.color.cream },
   centerFill: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 14, color: theme.color.muted, textAlign: 'center', lineHeight: 20 },
