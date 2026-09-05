@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef, createRef, type RefObject } from 'react';
-import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert } from 'react-native';
+import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import * as DocumentPicker from 'expo-document-picker';
 import { decode } from 'base64-arraybuffer';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -23,11 +24,11 @@ import { MessageSearchOverlay } from '@/components/chat/MessageSearchOverlay';
 import { VideoViewerModal } from '@/components/chat/VideoViewerModal';
 import { RequestBanner } from '@/components/chat/RequestBanner';
 import { generateClientId, openInMaps } from '@/lib/chat';
-import { saveRemoteMediaToGallery, saveViewAsImage } from '@/lib/media';
+import { saveRemoteMediaToGallery, saveViewAsImage, probeAudioDuration } from '@/lib/media';
 
 const MEDIA_BUCKET = 'message-media';
 
-type LocalMessage = MessageItem & { client_generated_id?: string | null; _base64?: string; _base64s?: string[] };
+type LocalMessage = MessageItem & { client_generated_id?: string | null; _base64?: string; _base64s?: string[]; _mimeType?: string | null };
 type OtherUser = { id: string; username: string | null; full_name: string | null; avatar_url: string | null };
 type MemberStatus = 'accepted' | 'request' | 'left';
 type ConversationInfo = { is_group: boolean; name: string | null; avatar_url: string | null; description: string | null; member_count: number; my_role: 'member' | 'admin' | null };
@@ -69,6 +70,8 @@ export default function ChatThread() {
   const [searchVisible, setSearchVisible] = useState(false);
   const [pickingVideo, setPickingVideo] = useState(false);
   const [videoViewerUri, setVideoViewerUri] = useState<string | null>(null);
+  const [pickingDocument, setPickingDocument] = useState(false);
+  const [pickingCamera, setPickingCamera] = useState(false);
 
   const hasMoreRef = useRef(true);
   const polaroidRefsMap = useRef<Map<string, RefObject<View | null>>>(new Map());
@@ -109,7 +112,7 @@ export default function ChatThread() {
     type Target = { path: string; rowId: string; attIndex?: number };
     const targets: Target[] = [];
     rows.forEach((r) => {
-      if ((r.message_type === 'image' || r.message_type === 'video' || r.message_type === 'voice') && r.media_path && !r.media_url && !r.local_uri) {
+      if ((r.message_type === 'image' || r.message_type === 'video' || r.message_type === 'voice' || r.message_type === 'document') && r.media_path && !r.media_url && !r.local_uri) {
         targets.push({ path: r.media_path, rowId: r.id });
       }
       if (r.message_type === 'gallery') {
@@ -353,7 +356,7 @@ export default function ChatThread() {
   }
 
   async function pickImages() {
-    if (!session || !id) return;
+    if (!session || !id || pickingImages) return;
     // Covers the whole flow — tapping the icon gives immediate feedback,
     // and it bridges the gap right after the native picker closes while
     // base64 encoding for the last photo(s) may still be finishing.
@@ -372,6 +375,24 @@ export default function ChatThread() {
       setPickedAssets((prev) => [...prev, ...assets]);
     } finally {
       setPickingImages(false);
+    }
+  }
+
+  async function pickCamera() {
+    if (!session || !id || pickingCamera) return;
+    setPickingCamera(true);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow camera access to take a photo.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.9, base64: true });
+      if (result.canceled || !result.assets[0]?.base64) return;
+      const asset = result.assets[0];
+      setPickedAssets((prev) => [...prev, { uri: asset.uri, base64: asset.base64 as string }]);
+    } finally {
+      setPickingCamera(false);
     }
   }
 
@@ -446,7 +467,7 @@ export default function ChatThread() {
   }
 
   async function pickVideo() {
-    if (!session || !id) return;
+    if (!session || !id || pickingVideo) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Permission needed', 'Allow photo library access to send a video.');
@@ -553,6 +574,80 @@ export default function ChatThread() {
       if (myStatus === 'request') setMyStatus('accepted');
     } catch {
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)));
+    }
+  }
+
+  async function pickDocument(audioOnly: boolean = false) {
+    if (!session || !id || pickingDocument) return;
+    const result = await DocumentPicker.getDocumentAsync({ type: audioOnly ? 'audio/*' : '*/*', copyToCacheDirectory: true });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+
+    if (asset.mimeType?.startsWith('audio/')) {
+      // A song/audio file picked from the phone gets the same cassette-player
+      // treatment as a recorded voice note, not a generic file card.
+      setPickingDocument(true);
+      let durationSeconds: number | null = null;
+      try {
+        durationSeconds = await probeAudioDuration(asset.uri);
+      } finally {
+        setPickingDocument(false);
+      }
+      sendVoiceMessage({ uri: asset.uri, durationSeconds });
+      return;
+    }
+    sendDocumentMessage({ uri: asset.uri, name: asset.name, size: asset.size ?? null, mimeType: asset.mimeType ?? null });
+  }
+
+  async function sendDocumentMessage(asset: { uri: string; name: string; size: number | null; mimeType?: string | null }, retryOf?: LocalMessage) {
+    if (!session || !id) return;
+    const clientId = retryOf?.client_generated_id ?? generateClientId();
+    const tempId = retryOf?.id ?? `temp-${clientId}`;
+    const name = retryOf ? (retryOf.file_name ?? asset.name) : asset.name;
+    const size = retryOf ? (retryOf.file_size ?? asset.size) : asset.size;
+    const mimeType = retryOf ? retryOf._mimeType : asset.mimeType;
+
+    if (retryOf) {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m)));
+    } else {
+      const temp: LocalMessage = {
+        id: tempId,
+        sender_id: session.user.id,
+        content: null,
+        created_at: new Date().toISOString(),
+        client_generated_id: clientId,
+        pending: true,
+        message_type: 'document',
+        local_uri: asset.uri,
+        file_name: name,
+        file_size: size,
+        _mimeType: asset.mimeType,
+      };
+      setMessages((prev) => [temp, ...prev]);
+    }
+
+    setPickingDocument(true);
+    try {
+      const extMatch = name.match(/\.[a-zA-Z0-9]+$/);
+      const path = `${id}/${session.user.id}_${Date.now()}${extMatch ? extMatch[0] : ''}`;
+      const response = await fetch(asset.uri);
+      const arrayBuffer = await response.arrayBuffer();
+      const { error: uploadError } = await supabase.storage.from(MEDIA_BUCKET).upload(path, arrayBuffer, { contentType: mimeType ?? undefined });
+      if (uploadError) throw uploadError;
+
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'document', media_path: path, file_name: name, file_size: size, client_generated_id: clientId })
+        .select()
+        .single();
+      if (error || !data) throw error ?? new Error('insert failed');
+
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, ...data, pending: false } : m)));
+      if (myStatus === 'request') setMyStatus('accepted');
+    } catch {
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)));
+    } finally {
+      setPickingDocument(false);
     }
   }
 
@@ -688,6 +783,8 @@ export default function ChatThread() {
       if (item.local_uri) sendVideoMessage({ uri: item.local_uri, durationSeconds: item.video_duration_seconds ?? null }, item);
     } else if (item.message_type === 'voice') {
       if (item.local_uri) sendVoiceMessage({ uri: item.local_uri, durationSeconds: item.voice_duration_seconds ?? null }, item);
+    } else if (item.message_type === 'document') {
+      if (item.local_uri) sendDocumentMessage({ uri: item.local_uri, name: item.file_name ?? 'File', size: item.file_size ?? null, mimeType: item._mimeType }, item);
     } else {
       sendMessage(item);
     }
@@ -898,6 +995,7 @@ export default function ChatThread() {
                   onPressSpot={(spotId) => router.push({ pathname: '/spot/[id]', params: { id: spotId } })}
                   onPressLocation={openInMaps}
                   onPressVideo={setVideoViewerUri}
+                  onPressDocument={(url) => Linking.openURL(url).catch(() => Alert.alert('Could not open file', 'Try again in a moment.'))}
                   polaroidRef={item.message_type === 'image' ? getPolaroidRef(item.id) : undefined}
                   galleryRef={item.message_type === 'gallery' ? getGalleryRef(item.id) : undefined}
                   getAttachmentRef={item.message_type === 'gallery' ? (index) => getAttachmentRef(item.id, index) : undefined}
@@ -936,7 +1034,9 @@ export default function ChatThread() {
             onChangeText={handleChangeText}
             onSend={handleSend}
             onPickImage={pickImages}
+            onPickCamera={pickCamera}
             pickingImages={pickingImages}
+            pickingCamera={pickingCamera}
             onPickVideo={pickVideo}
             pickingVideo={pickingVideo}
             onShareLocation={() => shareLocation()}
@@ -946,6 +1046,9 @@ export default function ChatThread() {
             sendMode={sendMode}
             onChangeSendMode={setSendMode}
             onSendVoice={(uri, durationSeconds) => sendVoiceMessage({ uri, durationSeconds })}
+            onPickDocument={() => pickDocument(false)}
+            onPickAudio={() => pickDocument(true)}
+            pickingDocument={pickingDocument}
             paddingBottom={Math.max(insets.bottom, 16) + 16}
           />
         )}

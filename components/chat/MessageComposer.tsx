@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudioRecorder, useAudioRecorderState, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
 import { theme } from '@/constants/theme';
+import { AttachMenu, type AttachMenuOption } from '@/components/chat/AttachMenu';
 
 export type PickedAsset = { uri: string; base64: string };
 export type SendMode = 'individual' | 'collage' | 'grid';
@@ -27,6 +28,8 @@ type Props = {
   onChangeText: (text: string) => void;
   onSend: () => void;
   onPickImage?: () => void;
+  onPickCamera?: () => void;
+  pickingCamera?: boolean;
   onPickVideo?: () => void;
   pickingVideo?: boolean;
   onShareLocation?: () => void;
@@ -37,22 +40,37 @@ type Props = {
   sendMode?: SendMode;
   onChangeSendMode?: (mode: SendMode) => void;
   onSendVoice?: (uri: string, durationSeconds: number) => void;
+  onPickDocument?: () => void;
+  onPickAudio?: () => void;
+  pickingDocument?: boolean;
   paddingBottom: number;
 };
 
 export function MessageComposer({
-  value, onChangeText, onSend, onPickImage, onPickVideo, pickingVideo, onShareLocation, sharingLocation, pickingImages, pickedAssets = [], onRemoveAsset,
-  sendMode = 'individual', onChangeSendMode, onSendVoice,
+  value, onChangeText, onSend, onPickImage, onPickCamera, pickingCamera, onPickVideo, pickingVideo, onShareLocation, sharingLocation, pickingImages, pickedAssets = [], onRemoveAsset,
+  sendMode = 'individual', onChangeSendMode, onSendVoice, onPickDocument, onPickAudio, pickingDocument,
   paddingBottom,
 }: Props) {
   const hasAssets = pickedAssets.length > 0;
   const canSend = value.trim().length > 0 || hasAssets;
   const modes: SendMode[] = pickedAssets.length >= 4 ? ['individual', 'collage', 'grid'] : ['individual', 'collage'];
+  const [attachMenuVisible, setAttachMenuVisible] = useState(false);
+  const busy = !!(pickingImages || pickingCamera || pickingVideo || pickingDocument || sharingLocation);
+
+  const attachOptions: AttachMenuOption[] = [
+    onPickImage && { key: 'photo', label: 'Photo', icon: 'image', color: theme.color.gold, iconColor: theme.color.dusk, onPress: onPickImage },
+    onPickCamera && { key: 'camera', label: 'Camera', icon: 'camera', color: theme.color.ember, iconColor: theme.color.dusk, onPress: onPickCamera },
+    onPickVideo && { key: 'video', label: 'Video', icon: 'videocam', color: theme.color.duskPurple, iconColor: theme.color.cream, onPress: onPickVideo },
+    onPickDocument && { key: 'document', label: 'Document', icon: 'document-attach', color: theme.color.duskPurple, iconColor: theme.color.cream, onPress: onPickDocument },
+    onPickAudio && { key: 'audio', label: 'Audio', icon: 'musical-notes', color: theme.color.gold, iconColor: theme.color.dusk, onPress: onPickAudio },
+    onShareLocation && { key: 'location', label: 'Location', icon: 'location', color: theme.color.ember, iconColor: theme.color.dusk, onPress: onShareLocation },
+  ].filter((opt): opt is AttachMenuOption => !!opt);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 200);
   const [isRecording, setIsRecording] = useState(false);
   const recordedSecondsRef = useRef(0);
+  const startingRecordingRef = useRef(false);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -63,23 +81,39 @@ export function MessageComposer({
 
   useEffect(() => {
     return () => {
-      if (audioRecorder.isRecording) audioRecorder.stop();
+      // useAudioRecorder already releases the underlying native object on
+      // unmount as part of its own lifecycle management — if that runs before
+      // this cleanup, touching the recorder here throws "shared object
+      // already released" rather than returning a stale isRecording value.
+      try {
+        if (audioRecorder.isRecording) audioRecorder.stop();
+      } catch {
+        // already released — nothing to stop
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function startRecording() {
-    if (isRecording) return;
-    const { granted } = await requestRecordingPermissionsAsync();
-    if (!granted) {
-      Alert.alert('Permission needed', 'Allow microphone access to send a voice message.');
-      return;
+    // isRecording (React state) can't be trusted to block a fast double-tap —
+    // it only flips after two awaits below, so a second tap can land before
+    // the first render commits. This ref is set synchronously instead.
+    if (isRecording || startingRecordingRef.current) return;
+    startingRecordingRef.current = true;
+    try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert('Permission needed', 'Allow microphone access to send a voice message.');
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      recordedSecondsRef.current = 0;
+      setIsRecording(true);
+    } finally {
+      startingRecordingRef.current = false;
     }
-    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-    await audioRecorder.prepareToRecordAsync();
-    audioRecorder.record();
-    recordedSecondsRef.current = 0;
-    setIsRecording(true);
   }
 
   async function cancelRecording() {
@@ -101,10 +135,12 @@ export function MessageComposer({
 
   return (
     <View style={{ paddingBottom }}>
-      {pickingImages && (
+      {busy && (
         <View style={styles.loadingRow}>
           <ActivityIndicator size="small" color={theme.color.gold} />
-          <Text style={styles.loadingText}>Loading photos…</Text>
+          <Text style={styles.loadingText}>
+            {pickingCamera ? 'Opening camera…' : pickingImages ? 'Loading photos…' : pickingVideo ? 'Preparing video…' : pickingDocument ? 'Attaching file…' : 'Sharing location…'}
+          </Text>
         </View>
       )}
       {hasAssets && (
@@ -146,24 +182,13 @@ export function MessageComposer({
         </View>
       ) : (
         <View style={styles.row}>
-          {onPickImage && (
-            <Pressable onPress={onPickImage} disabled={pickingImages} style={styles.attachBtn}>
-              <Ionicons name="image-outline" size={21} color={pickingImages ? theme.color.muted : theme.color.gold} />
-            </Pressable>
-          )}
-          {onPickVideo && (
-            <Pressable onPress={onPickVideo} disabled={pickingVideo} style={styles.attachBtn}>
-              {pickingVideo ? <ActivityIndicator size="small" color={theme.color.gold} /> : <Ionicons name="videocam-outline" size={21} color={theme.color.gold} />}
-            </Pressable>
-          )}
-          {onShareLocation && (
-            <Pressable onPress={onShareLocation} disabled={sharingLocation} style={styles.attachBtn}>
-              {sharingLocation ? <ActivityIndicator size="small" color={theme.color.gold} /> : <Ionicons name="location-outline" size={21} color={theme.color.gold} />}
-            </Pressable>
-          )}
-          {onSendVoice && !hasAssets && (
-            <Pressable onPress={startRecording} style={styles.attachBtn}>
-              <Ionicons name="mic-outline" size={21} color={theme.color.gold} />
+          {attachOptions.length > 0 && (
+            <Pressable
+              onPress={() => setAttachMenuVisible(true)}
+              disabled={busy}
+              accessibilityLabel="Add attachment"
+              style={styles.attachBtn}>
+              <Ionicons name="add-circle-outline" size={26} color={busy ? theme.color.muted : theme.color.gold} />
             </Pressable>
           )}
           <TextInput
@@ -174,12 +199,24 @@ export function MessageComposer({
             onChangeText={onChangeText}
             multiline
           />
-          <Pressable onPress={onSend} disabled={!canSend} style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}>
-            {hasAssets ? <Text style={styles.sendCount}>{pickedAssets.length}</Text> : null}
-            <Ionicons name="send" size={17} color={theme.color.dusk} />
-          </Pressable>
+          {canSend ? (
+            <Pressable onPress={onSend} accessibilityLabel="Send message" style={styles.sendBtn}>
+              {hasAssets ? <Text style={styles.sendCount}>{pickedAssets.length}</Text> : null}
+              <Ionicons name="send" size={17} color={theme.color.dusk} />
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={startRecording}
+              disabled={!onSendVoice}
+              accessibilityLabel="Record voice message"
+              style={[styles.sendBtn, !onSendVoice && styles.sendBtnDisabled]}>
+              <Ionicons name="mic" size={18} color={theme.color.dusk} />
+            </Pressable>
+          )}
         </View>
       )}
+
+      <AttachMenu visible={attachMenuVisible} onClose={() => setAttachMenuVisible(false)} options={attachOptions} />
     </View>
   );
 }
@@ -201,7 +238,7 @@ const styles = StyleSheet.create({
   recordIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 38, paddingHorizontal: 4 },
   recordDot: { width: 9, height: 9, borderRadius: 4.5, backgroundColor: theme.color.ember },
   recordTimer: { fontFamily: theme.font.mono, fontSize: 13, color: theme.color.cream },
-  input: { flex: 1, maxHeight: 110, backgroundColor: theme.color.surface, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, color: theme.color.cream, fontFamily: theme.font.bodyRegular, fontSize: 13.5, borderWidth: 1, borderColor: theme.color.surface2 },
+  input: { flex: 1, minWidth: 70, maxHeight: 110, backgroundColor: theme.color.surface, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, color: theme.color.cream, fontFamily: theme.font.bodyRegular, fontSize: 13.5, borderWidth: 1, borderColor: theme.color.surface2 },
   sendBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 38, height: 38, borderRadius: 19, paddingHorizontal: 10, backgroundColor: theme.color.gold, justifyContent: 'center' },
   sendBtnDisabled: { opacity: 0.4 },
   sendCount: { fontFamily: theme.font.body, fontSize: 12, color: theme.color.dusk },

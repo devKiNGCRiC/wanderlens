@@ -22,12 +22,14 @@ export type MessageItem = {
   reply_to_content?: string | null;
   reply_to_sender_name?: string | null;
   reactions?: Reaction[];
-  message_type?: 'text' | 'image' | 'gallery' | 'spot' | 'location' | 'video' | 'voice';
+  message_type?: 'text' | 'image' | 'gallery' | 'spot' | 'location' | 'video' | 'voice' | 'document';
   media_path?: string | null;
   media_url?: string | null;
   local_uri?: string | null;
   video_duration_seconds?: number | null;
   voice_duration_seconds?: number | null;
+  file_name?: string | null;
+  file_size?: number | null;
   gallery_layout?: 'collage' | 'grid' | null;
   attachments?: { id?: string; media_path?: string; media_url?: string; local_uri?: string }[];
   shared_spot_id?: string | null;
@@ -54,6 +56,7 @@ type Props = {
   onPressSpot?: (spotId: string) => void;
   onPressLocation?: (lat: number, lng: number) => void;
   onPressVideo?: (uri: string) => void;
+  onPressDocument?: (url: string) => void;
   polaroidRef?: RefObject<View | null>;
   galleryRef?: RefObject<View | null>;
   getAttachmentRef?: (index: number) => RefObject<View | null>;
@@ -81,6 +84,21 @@ function formatDuration(totalSeconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function documentIcon(fileName: string | null | undefined): keyof typeof Ionicons.glyphMap {
+  const ext = fileName?.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase();
+  if (ext === 'pdf') return 'document-text-outline';
+  if (ext && ['doc', 'docx'].includes(ext)) return 'document-outline';
+  if (ext && ['xls', 'xlsx', 'csv'].includes(ext)) return 'grid-outline';
+  if (ext && ['zip', 'rar', '7z'].includes(ext)) return 'archive-outline';
+  return 'document-attach-outline';
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const rows: T[][] = [];
   for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size));
@@ -98,7 +116,7 @@ function groupReactions(reactions: Reaction[] | undefined) {
   return Array.from(byEmoji.entries()).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
-export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, onPressLocation, onPressVideo, polaroidRef, galleryRef, getAttachmentRef }: Props) {
+export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, onPressLocation, onPressVideo, onPressDocument, polaroidRef, galleryRef, getAttachmentRef }: Props) {
   const time = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const grouped = groupReactions(message.reactions);
   const isImage = message.message_type === 'image';
@@ -107,6 +125,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
   const isLocation = message.message_type === 'location';
   const isVideo = message.message_type === 'video';
   const isVoice = message.message_type === 'voice';
+  const isDocument = message.message_type === 'document';
   const imageSrc = message.local_uri || message.media_url;
   const attachments = message.attachments ?? [];
   const useGrid = message.gallery_layout === 'grid';
@@ -388,6 +407,35 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
             <Text style={styles.galleryMeta}>{time}</Text>
           ) : null}
         </View>
+      ) : isDocument ? (
+        <View>
+          <Pressable
+            onLongPress={onLongPress}
+            delayLongPress={250}
+            onPress={() => imageSrc && !message.pending && onPressDocument?.(imageSrc)}
+            style={[styles.documentCard, message.failed && styles.bubbleFailed]}>
+            <View style={styles.documentIconWrap}>
+              {message.pending && !message.failed ? (
+                <ActivityIndicator size="small" color={theme.color.dusk} />
+              ) : (
+                <Ionicons name={documentIcon(message.file_name)} size={20} color={theme.color.dusk} />
+              )}
+            </View>
+            <View style={styles.documentInfo}>
+              <Text style={styles.documentName} numberOfLines={1}>{message.file_name ?? 'File'}</Text>
+              {message.file_size != null && <Text style={styles.documentSize}>{formatFileSize(message.file_size)}</Text>}
+            </View>
+            {!message.pending && <Ionicons name="open-outline" size={16} color={theme.color.muted} />}
+          </Pressable>
+          {message.failed ? (
+            <Pressable onPress={onRetry} style={styles.polaroidRetryRow}>
+              <Ionicons name="alert-circle-outline" size={11} color={theme.color.ember} />
+              <Text style={styles.polaroidRetryText}>Failed — tap to retry</Text>
+            </Pressable>
+          ) : !message.pending ? (
+            <Text style={styles.galleryMeta}>{time}</Text>
+          ) : null}
+        </View>
       ) : (
         <>
         <Pressable onLongPress={onLongPress} delayLongPress={250} onPress={isImage && imageSrc ? () => onPressImage?.(imageSrc) : undefined}>
@@ -458,7 +506,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       )}
 
-      {!isImage && !isGallery && !isSpot && !isLocation && !isVideo && !isVoice && (
+      {!isImage && !isGallery && !isSpot && !isLocation && !isVideo && !isVoice && !isDocument && (
         <View style={[styles.metaRow, isMine ? styles.metaRowMine : styles.metaRowTheirs]}>
           {message.failed ? (
             <Pressable onPress={onRetry} style={styles.retryRow}>
@@ -541,6 +589,11 @@ const styles = StyleSheet.create({
   voiceReelDot: { position: 'absolute', left: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: theme.color.surface2 },
   voiceReelDotRight: { left: undefined, right: 0 },
   voiceDuration: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.muted },
+  documentCard: { flexDirection: 'row', alignItems: 'center', gap: 10, width: 220, backgroundColor: '#20242F', borderRadius: theme.radius.sm, paddingVertical: 12, paddingHorizontal: 12 },
+  documentIconWrap: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
+  documentInfo: { flex: 1 },
+  documentName: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
+  documentSize: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.muted, marginTop: 2 },
   text: { fontFamily: theme.font.bodyRegular, fontSize: 14, lineHeight: 19 },
   textMine: { color: theme.color.dusk },
   textTheirs: { color: theme.color.cream },
