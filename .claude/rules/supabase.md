@@ -25,6 +25,16 @@ as of `supabase/migrations/20260921000000_notifications_social_events.sql`,
 types also populate `actor_id` (who did the action) and, for `comment_like`,
 `related_comment_id` — the older connect-event rows leave both null.
 
+**`notifications.type` has a check constraint** (`notifications_type_check`,
+found the hard way — a trigger insert of an unlisted type fails silently into
+a `raise warning`, not a visible app error, per the exception-guard pattern
+below). Its current allowed list lives in
+`supabase/migrations/20260924000000_notifications_type_check_fix.sql`. Adding
+a new notification `type` string anywhere means widening this constraint in
+the same migration — `alter table notifications drop constraint if exists
+notifications_type_check` then re-`add constraint` with the full list,
+old + new values together.
+
 **RPCs:** `feed_spots`, `nearby_spots`, `nearby_photographers`, `discover_people`,
 `get_spot`, `get_spot_comments`, `get_saved_spots`, `get_connection_status`,
 `get_notifications`, `get_unread_notification_count`, `mark_notifications_read`.
