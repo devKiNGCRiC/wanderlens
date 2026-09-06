@@ -10,6 +10,15 @@ export const theme = {
     muted: '#9AA0B4',
     // Subtle gold-tinted surface highlight — e.g. an unread row background.
     goldTint: 'rgba(232,166,76,0.06)',
+    // Deliberately darker than surface2 — the near-black "hardware" casing
+    // behind voice-note and document bubbles, distinct from general UI chrome.
+    mediaCasing: '#20242F',
+    // A warm muted tone for text on the cream polaroid card — `muted` is a
+    // cool blue-gray tuned for dark backgrounds and reads wrong on cream.
+    polaroidMuted: '#8a7f6e',
+    // A stronger gold tint than goldTint (0.06) — for a badge that needs to
+    // read clearly, e.g. an "Admin" pill, not a barely-there highlight.
+    goldBadgeTint: 'rgba(232,166,76,0.15)',
   },
   font: {
     display: 'Fraunces_500Medium',

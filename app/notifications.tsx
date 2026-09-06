@@ -212,7 +212,7 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
-  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   clearBtn: { paddingHorizontal: 4, paddingVertical: 8 },
   clearText: { fontFamily: theme.font.body, fontSize: 12, color: theme.color.gold },
   title: { fontFamily: theme.font.display, fontSize: 18, color: theme.color.cream },

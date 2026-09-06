@@ -245,7 +245,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
           ) : null}
         </View>
         {onSaveGallery && !message.pending && !message.failed && (
-          <Pressable onPress={onSaveGallery} style={styles.gallerySaveBtn}>
+          <Pressable onPress={onSaveGallery} accessibilityLabel="Save gallery" hitSlop={9} style={styles.gallerySaveBtn}>
             <Ionicons name="download-outline" size={14} color={theme.color.cream} />
           </Pressable>
         )}
@@ -537,7 +537,7 @@ const styles = StyleSheet.create({
   imagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
   uploadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(20,23,31,0.4)', alignItems: 'center', justifyContent: 'center' },
   polaroidCaption: { fontFamily: theme.font.displayItalic, fontSize: 12.5, color: theme.color.dusk, marginTop: 8, textAlign: 'center' },
-  polaroidMeta: { fontFamily: theme.font.mono, fontSize: 9, color: '#8a7f6e', textAlign: 'center', marginTop: 6 },
+  polaroidMeta: { fontFamily: theme.font.mono, fontSize: 9, color: theme.color.polaroidMuted, textAlign: 'center', marginTop: 6 },
   polaroidRetryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 6 },
   polaroidRetryText: { fontFamily: theme.font.mono, fontSize: 9, color: theme.color.ember },
   galleryWrap: { paddingHorizontal: 10, paddingTop: 6, width: 210 },
@@ -552,10 +552,10 @@ const styles = StyleSheet.create({
   gridGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, borderRadius: theme.radius.md, overflow: 'hidden' },
   gridCell: { width: 100, height: 100, backgroundColor: theme.color.surface2 },
   hiddenExportLayer: { position: 'absolute', top: -3000, left: 0, flexDirection: 'row', gap: 4 },
-  exportPolaroidFrame: { backgroundColor: theme.color.cream, padding: 28, paddingBottom: 46, borderRadius: 14, width: EXPORT_SINGLE_SIZE + 56 },
+  exportPolaroidFrame: { backgroundColor: theme.color.cream, padding: 28, paddingBottom: 46, borderRadius: theme.radius.md, width: EXPORT_SINGLE_SIZE + 56 },
   exportPolaroidPhotoWrap: { width: EXPORT_SINGLE_SIZE, height: EXPORT_SINGLE_SIZE, borderRadius: 6, overflow: 'hidden', backgroundColor: theme.color.surface2 },
   exportPolaroidCaption: { fontFamily: theme.font.displayItalic, fontSize: 30, color: theme.color.dusk, marginTop: 20, textAlign: 'center' },
-  exportPolaroidMeta: { fontFamily: theme.font.mono, fontSize: 18, color: '#8a7f6e', textAlign: 'center', marginTop: 10 },
+  exportPolaroidMeta: { fontFamily: theme.font.mono, fontSize: 18, color: theme.color.polaroidMuted, textAlign: 'center', marginTop: 10 },
   exportGalleryWrap: { padding: 32, backgroundColor: theme.color.dusk, borderRadius: 18 },
   exportGridWrap: { padding: 12, backgroundColor: theme.color.dusk, borderRadius: 18 },
   exportGridGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, borderRadius: theme.radius.lg, overflow: 'hidden' },
@@ -581,7 +581,7 @@ const styles = StyleSheet.create({
   reelPlayBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
   reelDurationBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 8, paddingVertical: 2, paddingHorizontal: 7 },
   reelDurationText: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.cream },
-  voiceCassette: { flexDirection: 'row', alignItems: 'center', gap: 10, width: 210, backgroundColor: '#20242F', borderRadius: 22, paddingVertical: 10, paddingHorizontal: 12, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  voiceCassette: { flexDirection: 'row', alignItems: 'center', gap: 10, width: 210, backgroundColor: theme.color.mediaCasing, borderRadius: theme.radius.lg, paddingVertical: 10, paddingHorizontal: 12, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   voicePlayBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
   voiceTrack: { flex: 1, height: 20, justifyContent: 'center' },
   voiceTrackLine: { position: 'absolute', left: 6, right: 6, height: 3, borderRadius: 1.5, backgroundColor: theme.color.surface2 },
@@ -589,7 +589,7 @@ const styles = StyleSheet.create({
   voiceReelDot: { position: 'absolute', left: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: theme.color.surface2 },
   voiceReelDotRight: { left: undefined, right: 0 },
   voiceDuration: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.muted },
-  documentCard: { flexDirection: 'row', alignItems: 'center', gap: 10, width: 220, backgroundColor: '#20242F', borderRadius: theme.radius.sm, paddingVertical: 12, paddingHorizontal: 12 },
+  documentCard: { flexDirection: 'row', alignItems: 'center', gap: 10, width: 220, backgroundColor: theme.color.mediaCasing, borderRadius: theme.radius.sm, paddingVertical: 12, paddingHorizontal: 12 },
   documentIconWrap: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
   documentInfo: { flex: 1 },
   documentName: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },

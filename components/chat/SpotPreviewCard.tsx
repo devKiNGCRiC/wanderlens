@@ -1,4 +1,5 @@
-import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 
@@ -34,6 +35,6 @@ const styles = StyleSheet.create({
   thumbCornerTL: { position: 'absolute', top: -2, left: -2, width: 10, height: 10, borderTopWidth: 1.5, borderLeftWidth: 1.5, borderColor: theme.color.gold },
   thumbCornerBR: { position: 'absolute', bottom: -2, right: -2, width: 10, height: 10, borderBottomWidth: 1.5, borderRightWidth: 1.5, borderColor: theme.color.gold },
   body: { flex: 1 },
-  title: { fontFamily: theme.font.display, fontSize: 13.5, color: theme.color.cream },
+  title: { fontFamily: theme.font.body, fontSize: 13.5, color: theme.color.cream },
   meta: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.gold, marginTop: 3 },
 });

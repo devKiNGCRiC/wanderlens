@@ -18,20 +18,28 @@ export default function NewMessageScreen() {
   const [results, setResults] = useState<Person[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
 
   const search = useCallback(async (q: string) => {
     if (!session || q.trim().length < 2) {
       setResults([]);
+      setSearchError(false);
       return;
     }
     setLoading(true);
-    const { data } = await supabase
+    setSearchError(false);
+    const { data, error } = await supabase
       .from('profiles')
       .select('id, username, full_name, avatar_url')
       .neq('id', session.user.id)
       .or(`username.ilike.%${q}%,full_name.ilike.%${q}%`)
       .limit(20);
+    if (error) {
+      setSearchError(true);
+      setLoading(false);
+      return;
+    }
     setResults((data as Person[]) ?? []);
     setLoading(false);
   }, [session]);
@@ -119,6 +127,12 @@ export default function NewMessageScreen() {
         autoFocus={!shareSpotId}
       />
       {loading && <ActivityIndicator color={theme.color.gold} style={{ marginTop: 20 }} />}
+      {searchError && !loading && (
+        <View style={styles.searchErrorRow}>
+          <Text style={styles.searchErrorText}>Couldn&apos;t search — try again.</Text>
+          <Pressable onPress={() => search(query)}><Text style={styles.searchRetryText}>Retry</Text></Pressable>
+        </View>
+      )}
       <FlatList
         data={results}
         keyExtractor={(item) => item.id}
@@ -156,4 +170,7 @@ const styles = StyleSheet.create({
   name: { fontFamily: theme.font.body, fontSize: 14.5, color: theme.color.cream },
   username: { fontFamily: theme.font.mono, fontSize: 11, color: theme.color.gold, marginTop: 2 },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', marginTop: 30 },
+  searchErrorRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
+  searchErrorText: { fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.muted },
+  searchRetryText: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.gold },
 });

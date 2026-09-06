@@ -18,20 +18,28 @@ export default function CreateGroupScreen() {
   const [results, setResults] = useState<Person[]>([]);
   const [selected, setSelected] = useState<Person[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const search = useCallback(async (q: string) => {
     if (!session || q.trim().length < 2) {
       setResults([]);
+      setSearchError(false);
       return;
     }
     setLoading(true);
-    const { data } = await supabase
+    setSearchError(false);
+    const { data, error } = await supabase
       .from('profiles')
       .select('id, username, full_name, avatar_url')
       .neq('id', session.user.id)
       .or(`username.ilike.%${q}%,full_name.ilike.%${q}%`)
       .limit(20);
+    if (error) {
+      setSearchError(true);
+      setLoading(false);
+      return;
+    }
     setResults((data as Person[]) ?? []);
     setLoading(false);
   }, [session]);
@@ -94,7 +102,7 @@ export default function CreateGroupScreen() {
               <View style={styles.chip}>
                 <Avatar uri={item.avatar_url} label={label} size={26} />
                 <Text style={styles.chipText} numberOfLines={1}>{label}</Text>
-                <Pressable onPress={() => toggleSelect(item)}><Ionicons name="close" size={13} color={theme.color.muted} /></Pressable>
+                <Pressable onPress={() => toggleSelect(item)} accessibilityLabel={`Remove ${label}`} hitSlop={9}><Ionicons name="close" size={13} color={theme.color.muted} /></Pressable>
               </View>
             );
           }}
@@ -109,6 +117,12 @@ export default function CreateGroupScreen() {
         onChangeText={onChangeQuery}
       />
       {loading && <ActivityIndicator color={theme.color.gold} style={{ marginTop: 20 }} />}
+      {searchError && !loading && (
+        <View style={styles.searchErrorRow}>
+          <Text style={styles.searchErrorText}>Couldn&apos;t search — try again.</Text>
+          <Pressable onPress={() => search(query)}><Text style={styles.searchRetryText}>Retry</Text></Pressable>
+        </View>
+      )}
       <FlatList
         data={results}
         keyExtractor={(item) => item.id}
@@ -149,6 +163,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
   name: { fontFamily: theme.font.body, fontSize: 14.5, color: theme.color.cream },
   username: { fontFamily: theme.font.mono, fontSize: 11, color: theme.color.gold, marginTop: 2 },
+  searchErrorRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
+  searchErrorText: { fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.muted },
+  searchRetryText: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.gold },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', marginTop: 30 },
   createBtn: { position: 'absolute', bottom: 24, left: 20, right: 20, backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 14, alignItems: 'center' },
   createBtnDisabled: { opacity: 0.6 },

@@ -149,7 +149,7 @@ export function MessageComposer({
             {pickedAssets.map((asset, index) => (
               <View key={asset.uri + index} style={styles.previewItem}>
                 <Image source={{ uri: asset.uri }} style={styles.previewImage} contentFit="cover" />
-                <Pressable onPress={() => onRemoveAsset?.(index)} style={styles.previewRemove}>
+                <Pressable onPress={() => onRemoveAsset?.(index)} accessibilityLabel="Remove photo" hitSlop={9} style={styles.previewRemove}>
                   <Ionicons name="close" size={12} color={theme.color.cream} />
                 </Pressable>
               </View>
@@ -168,7 +168,7 @@ export function MessageComposer({
       )}
       {isRecording ? (
         <View style={styles.row}>
-          <Pressable onPress={cancelRecording} style={styles.attachBtn}>
+          <Pressable onPress={cancelRecording} accessibilityLabel="Cancel recording" style={styles.attachBtn}>
             <Ionicons name="trash-outline" size={20} color={theme.color.ember} />
           </Pressable>
           <View style={styles.recordIndicator}>
@@ -176,7 +176,7 @@ export function MessageComposer({
             <Text style={styles.recordTimer}>{formatRecordingTime(Math.round(recorderState.durationMillis / 1000))}</Text>
           </View>
           <View style={{ flex: 1 }} />
-          <Pressable onPress={stopAndSendRecording} style={styles.sendBtn}>
+          <Pressable onPress={stopAndSendRecording} accessibilityLabel="Stop and send recording" style={styles.sendBtn}>
             <Ionicons name="send" size={17} color={theme.color.dusk} />
           </Pressable>
         </View>
@@ -234,12 +234,12 @@ const styles = StyleSheet.create({
   modeChipText: { fontFamily: theme.font.bodyRegular, fontSize: 11, color: theme.color.muted },
   modeChipTextActive: { fontFamily: theme.font.body, color: theme.color.dusk },
   row: { flexDirection: 'row', gap: 10, paddingTop: 12, paddingHorizontal: 14, borderTopWidth: 1, borderTopColor: theme.color.surface2, backgroundColor: theme.color.dusk, alignItems: 'flex-end' },
-  attachBtn: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
-  recordIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 38, paddingHorizontal: 4 },
+  attachBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  recordIndicator: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 4 },
   recordDot: { width: 9, height: 9, borderRadius: 4.5, backgroundColor: theme.color.ember },
   recordTimer: { fontFamily: theme.font.mono, fontSize: 13, color: theme.color.cream },
   input: { flex: 1, minWidth: 70, maxHeight: 110, backgroundColor: theme.color.surface, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, color: theme.color.cream, fontFamily: theme.font.bodyRegular, fontSize: 13.5, borderWidth: 1, borderColor: theme.color.surface2 },
-  sendBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 38, height: 38, borderRadius: 19, paddingHorizontal: 10, backgroundColor: theme.color.gold, justifyContent: 'center' },
+  sendBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 10, backgroundColor: theme.color.gold, justifyContent: 'center' },
   sendBtnDisabled: { opacity: 0.4 },
   sendCount: { fontFamily: theme.font.body, fontSize: 12, color: theme.color.dusk },
 });

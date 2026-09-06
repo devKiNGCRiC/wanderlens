@@ -22,18 +22,25 @@ export default function ChatListScreen() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [requests, setRequests] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [optionsFor, setOptionsFor] = useState<ConversationSummary | null>(null);
   const [composeMenuVisible, setComposeMenuVisible] = useState(false);
 
   const load = useCallback(async () => {
     if (!session) return;
     setLoading(true);
+    setLoadError(false);
     const [inboxRes, requestsRes] = await Promise.all([
       supabase.rpc('list_conversations', { p_status: 'accepted' }),
       supabase.rpc('list_conversations', { p_status: 'request' }),
     ]);
-    if (!inboxRes.error) setConversations((inboxRes.data as ConversationSummary[]) ?? []);
-    if (!requestsRes.error) setRequests((requestsRes.data as ConversationSummary[]) ?? []);
+    if (inboxRes.error || requestsRes.error) {
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
+    setConversations((inboxRes.data as ConversationSummary[]) ?? []);
+    setRequests((requestsRes.data as ConversationSummary[]) ?? []);
     setLoading(false);
     refreshUnreadCount();
   }, [session]);
@@ -90,10 +97,10 @@ export default function ChatListScreen() {
         <View style={styles.titleRow}>
           <Text style={styles.title}>Chat</Text>
           <View style={styles.headerBtns}>
-            <Pressable onPress={() => router.push('/chat/archived')} style={styles.iconBtn}>
+            <Pressable onPress={() => router.push('/chat/archived')} accessibilityLabel="Archived chats" style={styles.iconBtn}>
               <Ionicons name="archive-outline" size={18} color={theme.color.gold} />
             </Pressable>
-            <Pressable onPress={() => setComposeMenuVisible(true)} style={styles.iconBtn}>
+            <Pressable onPress={() => setComposeMenuVisible(true)} accessibilityLabel="New message" style={styles.iconBtn}>
               <Ionicons name="create-outline" size={20} color={theme.color.gold} />
             </Pressable>
           </View>
@@ -112,6 +119,13 @@ export default function ChatListScreen() {
 
       {loading ? (
         <ActivityIndicator color={theme.color.gold} style={{ marginTop: 40 }} />
+      ) : loadError ? (
+        <View style={styles.errorState}>
+          <Text style={styles.emptyText}>Couldn&apos;t load your conversations.</Text>
+          <Pressable onPress={load} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
       ) : (
         <FlatList
           data={data}
@@ -179,7 +193,7 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   title: { fontFamily: theme.font.display, fontSize: 26, color: theme.color.cream },
   headerBtns: { flexDirection: 'row', gap: 10 },
-  iconBtn: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: theme.color.surface2, alignItems: 'center', justifyContent: 'center' },
+  iconBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: theme.color.surface2, alignItems: 'center', justifyContent: 'center' },
   segments: { flexDirection: 'row', backgroundColor: theme.color.surface, borderRadius: 24, padding: 4, borderWidth: 1, borderColor: theme.color.surface2 },
   segment: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 20 },
   segmentActive: { backgroundColor: theme.color.gold },
@@ -189,6 +203,9 @@ const styles = StyleSheet.create({
   badgeText: { fontFamily: theme.font.body, fontSize: 9, color: theme.color.cream },
   separator: { height: 1, backgroundColor: theme.color.surface2, marginLeft: 62 },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 40 },
+  errorState: { alignItems: 'center' },
+  retryBtn: { marginTop: 12, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, paddingVertical: 10, paddingHorizontal: 20 },
+  retryText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.gold },
   requestActions: { flexDirection: 'row', gap: 10, marginLeft: 62, marginBottom: 10, marginTop: -4 },
   acceptBtn: { flex: 1, backgroundColor: theme.color.gold, borderRadius: 16, paddingVertical: 8, alignItems: 'center' },
   acceptBtnText: { fontFamily: theme.font.body, fontSize: 12, color: theme.color.dusk },

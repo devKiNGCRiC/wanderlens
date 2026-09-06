@@ -47,14 +47,14 @@ export function ImageViewer({ visible, uri, onClose, onSaveStyled, styledLabel }
         <Image source={{ uri }} style={styles.image} resizeMode="contain" />
 
         {onSaveStyled && (
-          <Pressable onPress={handleSaveStyled} disabled={!!saving} style={[styles.save, { right: 112 }]}>
+          <Pressable onPress={handleSaveStyled} disabled={!!saving} accessibilityLabel="Save styled photo" style={[styles.save, { right: 132 }]}>
             {saving === 'styled' ? <ActivityIndicator size="small" color={theme.color.gold} /> : <Ionicons name="images-outline" size={18} color={theme.color.gold} />}
           </Pressable>
         )}
-        <Pressable onPress={handleSaveRaw} disabled={!!saving} style={[styles.save, { right: 68 }]}>
+        <Pressable onPress={handleSaveRaw} disabled={!!saving} accessibilityLabel="Save photo" style={[styles.save, { right: 78 }]}>
           {saving === 'raw' ? <ActivityIndicator size="small" color={theme.color.gold} /> : <Ionicons name="download-outline" size={18} color={theme.color.gold} />}
         </Pressable>
-        <Pressable onPress={onClose} style={styles.close}><Text style={styles.closeText}>✕</Text></Pressable>
+        <Pressable onPress={onClose} accessibilityLabel="Close" style={styles.close}><Ionicons name="close" size={20} color="#fff" /></Pressable>
 
         {onSaveStyled && !!styledLabel && (
           <Text style={styles.hint}>{styledLabel}</Text>
@@ -67,8 +67,7 @@ export function ImageViewer({ visible, uri, onClose, onSaveStyled, styledLabel }
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', alignItems: 'center', justifyContent: 'center' },
   image: { width: '100%', height: '80%' },
-  save: { position: 'absolute', top: 50, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
-  close: { position: 'absolute', top: 50, right: 24, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
-  closeText: { color: '#fff', fontSize: 13 },
-  hint: { position: 'absolute', top: 88, right: 24, color: 'rgba(255,255,255,0.5)', fontSize: 9 },
+  save: { position: 'absolute', top: 50, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
+  close: { position: 'absolute', top: 50, right: 24, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
+  hint: { position: 'absolute', top: 98, right: 24, color: 'rgba(255,255,255,0.5)', fontSize: 9 },
 });

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Image, TextInput, Pressable, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -41,6 +42,7 @@ export default function GroupInfoScreen() {
   const [spots, setSpots] = useState<SharedSpot[]>([]);
   const [flags, setFlags] = useState<Flags>({ is_pinned: false, is_muted: false, is_favorite: false });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [myRole, setMyRole] = useState<'member' | 'admin' | null>(null);
   const [actionFor, setActionFor] = useState<Member | null>(null);
   const [addingOpen, setAddingOpen] = useState(false);
@@ -57,14 +59,27 @@ export default function GroupInfoScreen() {
   const load = useCallback(async () => {
     if (!id || !myUserId) return;
     setLoading(true);
-    const [{ data: infoData }, { data: memberRows }, { data: photoRows }, { data: spotRows }, { data: flagRow }] = await Promise.all([
+    setLoadError(false);
+    const [infoRes, memberRes, photosRes, spotsRes, flagsRes] = await Promise.all([
       supabase.rpc('get_conversation_info', { p_conversation_id: id }).maybeSingle(),
       supabase.from('conversation_members').select('user_id, role, profiles:user_id(username, full_name, avatar_url)').eq('conversation_id', id),
       supabase.rpc('get_group_shared_photos', { p_conversation_id: id, p_limit: PHOTO_PREVIEW_LIMIT }),
       supabase.rpc('get_group_shared_spots', { p_conversation_id: id }),
       supabase.from('conversation_members').select('is_pinned, is_muted, is_favorite').eq('conversation_id', id).eq('user_id', myUserId).maybeSingle(),
     ]);
-    const info = infoData as { name: string | null; description: string | null; avatar_url: string | null; member_count: number; my_role: 'member' | 'admin' | null } | null;
+    // The primary query failing means there's nothing sensible to show at
+    // all; the other four are supplementary sections that already degrade
+    // to empty/default state on failure, so only this one is a hard error.
+    if (infoRes.error) {
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
+    const { data: memberRows } = memberRes;
+    const { data: photoRows } = photosRes;
+    const { data: spotRows } = spotsRes;
+    const { data: flagRow } = flagsRes;
+    const info = infoRes.data as { name: string | null; description: string | null; avatar_url: string | null; member_count: number; my_role: 'member' | 'admin' | null } | null;
     if (info) {
       setName(info.name || 'Group');
       setDescription(info.description || '');
@@ -213,6 +228,20 @@ export default function GroupInfoScreen() {
     );
   }
 
+  if (loadError) {
+    return (
+      <ScreenBackground>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.center}>
+          <Text style={styles.emptyText}>Couldn&apos;t load this group.</Text>
+          <Pressable onPress={load} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
+      </ScreenBackground>
+    );
+  }
+
   return (
     <ScreenBackground>
       <Stack.Screen options={{ headerShown: false }} />
@@ -221,20 +250,23 @@ export default function GroupInfoScreen() {
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={StyleSheet.absoluteFill} blurRadius={22} />
         ) : (
-          <LinearGradient colors={['#C9683E', '#4B3F72', 'transparent']} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={['#C9683E', theme.color.duskPurple, 'transparent']} style={StyleSheet.absoluteFill} />
         )}
-        <Pressable onPress={() => router.back()} style={[styles.backBtn, { top: insets.top + 10 }]}>
+        <Pressable onPress={() => router.back()} accessibilityLabel="Go back" style={[styles.backBtn, { top: insets.top + 10 }]}>
           <Ionicons name="chevron-back" size={20} color={theme.color.cream} />
         </Pressable>
         {isAdmin && !editing && (
-          <Pressable onPress={openEdit} style={[styles.editBtn, { top: insets.top + 10 }]}>
+          <Pressable onPress={openEdit} accessibilityLabel="Edit group" style={[styles.editBtn, { top: insets.top + 10 }]}>
             <Ionicons name="pencil-outline" size={17} color={theme.color.cream} />
           </Pressable>
         )}
       </View>
 
       <View style={styles.headerBody}>
-        <Pressable onPress={isAdmin ? changePhoto : undefined} style={styles.groupAvatarRing}>
+        <Pressable
+          onPress={isAdmin ? changePhoto : undefined}
+          accessibilityLabel={isAdmin ? 'Change group photo' : undefined}
+          style={styles.groupAvatarRing}>
           <View style={styles.groupAvatar}>
             {uploadingPhoto ? (
               <ActivityIndicator color={theme.color.dusk} />
@@ -409,9 +441,12 @@ export default function GroupInfoScreen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center' },
+  retryBtn: { marginTop: 12, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, paddingVertical: 10, paddingHorizontal: 20 },
+  retryText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.gold },
   banner: { height: 130, backgroundColor: theme.color.surface },
-  backBtn: { position: 'absolute', left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
-  editBtn: { position: 'absolute', right: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
+  backBtn: { position: 'absolute', left: 16, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
+  editBtn: { position: 'absolute', right: 16, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   headerBody: { alignItems: 'center', paddingHorizontal: 20, paddingBottom: 20 },
   groupAvatarRing: { marginTop: -50, position: 'relative' },
   groupAvatar: { width: 100, height: 100, borderRadius: 50, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderWidth: 3, borderColor: theme.color.dusk },
@@ -441,7 +476,7 @@ const styles = StyleSheet.create({
   input: { backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, padding: 10, borderWidth: 1, borderColor: theme.color.surface2, fontFamily: theme.font.bodyRegular, color: theme.color.cream, fontSize: 13.5 },
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9 },
   memberName: { fontFamily: theme.font.body, fontSize: 14, color: theme.color.cream, flex: 1 },
-  adminBadge: { backgroundColor: 'rgba(232,166,76,0.15)', borderRadius: 10, paddingVertical: 3, paddingHorizontal: 9 },
+  adminBadge: { backgroundColor: theme.color.goldBadgeTint, borderRadius: 10, paddingVertical: 3, paddingHorizontal: 9 },
   adminBadgeText: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.gold },
   leaveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 24, paddingVertical: 12, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md },
   leaveBtnText: { fontFamily: theme.font.body, fontSize: 13.5, color: theme.color.ember },

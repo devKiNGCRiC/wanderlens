@@ -1,4 +1,5 @@
-import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/Avatar';
 import { theme } from '@/constants/theme';

@@ -88,7 +88,7 @@ export function MessageSearchOverlay({ visible, conversationId, myUserId, onClos
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={[styles.container, { paddingTop: insets.top + 10 }]}>
         <View style={styles.searchRow}>
-          <Pressable onPress={onClose} style={styles.backBtn}>
+          <Pressable onPress={onClose} accessibilityLabel="Close search" style={styles.backBtn}>
             <Ionicons name="chevron-back" size={20} color={theme.color.cream} />
           </Pressable>
           <TextInput
@@ -160,7 +160,7 @@ export function MessageSearchOverlay({ visible, conversationId, myUserId, onClos
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.color.dusk },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingBottom: 12 },
-  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, padding: 10, borderWidth: 1, borderColor: theme.color.surface2, fontFamily: theme.font.bodyRegular, color: theme.color.cream, fontSize: 14 },
   resultRow: { paddingVertical: 10 },
   resultSender: { fontFamily: theme.font.body, fontSize: 11.5, color: theme.color.gold, marginBottom: 5 },

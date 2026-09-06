@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, createRef, type RefObject } from 'react';
-import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert, Linking } from 'react-native';
+import { View, Text, Pressable, FlatList, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Alert, Linking } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -932,7 +933,7 @@ export default function ChatThread() {
 
       {/* Fixed header — stays put; only the message area + composer below react to the keyboard. */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => router.back()} accessibilityLabel="Go back" style={styles.backBtn}>
           <Ionicons name="chevron-back" size={20} color={theme.color.cream} />
         </Pressable>
         <Pressable
@@ -961,10 +962,10 @@ export default function ChatThread() {
             ) : null}
           </View>
         </Pressable>
-        <Pressable onPress={() => setSearchVisible(true)} style={styles.menuBtn}>
+        <Pressable onPress={() => setSearchVisible(true)} accessibilityLabel="Search messages" style={styles.menuBtn}>
           <Ionicons name="search-outline" size={19} color={theme.color.cream} />
         </Pressable>
-        <Pressable onPress={openMenu} style={styles.menuBtn}>
+        <Pressable onPress={openMenu} accessibilityLabel="More options" style={styles.menuBtn}>
           <Ionicons name="ellipsis-vertical" size={18} color={theme.color.cream} />
         </Pressable>
       </View>
@@ -1019,7 +1020,7 @@ export default function ChatThread() {
               <Text style={styles.replyBarName}>Replying to {replyingTo.sender_id === myUserId ? 'yourself' : name}</Text>
               <Text style={styles.replyBarText} numberOfLines={1}>{replyingTo.content}</Text>
             </View>
-            <Pressable onPress={() => setReplyingTo(null)}><Ionicons name="close" size={16} color={theme.color.muted} /></Pressable>
+            <Pressable onPress={() => setReplyingTo(null)} accessibilityLabel="Cancel reply"><Ionicons name="close" size={16} color={theme.color.muted} /></Pressable>
           </View>
         )}
 
@@ -1116,14 +1117,14 @@ export default function ChatThread() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.color.surface2, backgroundColor: theme.color.dusk },
-  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerInfo: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   headerName: { fontFamily: theme.font.body, fontSize: 15, color: theme.color.cream },
   typingText: { fontFamily: theme.font.bodyRegular, fontSize: 11, color: theme.color.gold, marginTop: 1 },
   memberCountText: { fontFamily: theme.font.bodyRegular, fontSize: 11, color: theme.color.muted, marginTop: 1 },
   groupHeaderAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   groupHeaderAvatarImage: { width: '100%', height: '100%' },
-  menuBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  menuBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   listContent: { paddingHorizontal: 14, paddingTop: 14, flexGrow: 1, justifyContent: 'flex-end' },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center' },
   seenText: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted, textAlign: 'right', marginRight: 4, marginTop: -2, marginBottom: 4 },
