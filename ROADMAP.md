@@ -5,16 +5,17 @@ considered" before proposing or building a feature — check here first.
 
 ## Next up
 
-**Chat.** Schema is already built and RLS-secured — `conversations`,
-`conversation_members`, `messages` — including a `security definer` helper
-function that avoids a Postgres RLS self-reference recursion trap. What's
-missing is UI and wiring only:
-
-- Conversation list screen
-- Message thread screen using Supabase Realtime
-- "Message" entry point from a connected person's profile
-- In-app notification bell (the `notifications` table already exists and is
-  populated by triggers on connection events — no UI reads it yet)
+Chat and the notification bell (both listed as "Next up" previously) are now
+fully built: 1:1 and group messaging with every media type (photo/collage/
+grid, video, voice notes, documents, location, spot-share), replies,
+reactions, search, block/report, group management, and an in-app notification
+bell covering both connection events and social events (likes, comments,
+replies, comment likes, spot-shared-in-chat, message requests). A full RLS
+audit has also been done across the chat/notification tables and the legacy
+tables predating migration tracking (see `supabase/migrations/` from
+`20260903000000` through `20260926000000` for the phase history and the fixes
+that audit produced). Nothing is currently queued here — see "Deferred for
+later" below for what's deliberately not built, or propose something new.
 
 ## Deferred for later / post-submission
 
@@ -35,15 +36,17 @@ re-proposing the feature as new:
 | Map pin rendering rewrite | Current `ViewAnnotation` approach has a known async-image snapshot-timing quirk. Mitigated today by pre-fetching images before render — works, not fully robust. A `ShapeSource` + `SymbolLayer` rewrite is the complete fix |
 | Activity tracker feed | Considered, dropped — low value for a capstone demo |
 
-## Known, accepted simplification
+## Resolved simplifications
 
-`lib/ai.ts` calls Groq and Gemini directly from the client with
-`EXPO_PUBLIC_*` keys — extractable from a compiled build. For a capstone on
-free tiers with no real financial exposure this is a reasonable, explicitly
-acknowledged tradeoff. Before a real Play Store / App Store release, this must
-move behind a Supabase Edge Function (see `.claude/rules/security.md`) — treat
-that as a release blocker, not a nice-to-have, once this stops being a
-classroom submission and starts being a public app.
+`lib/ai.ts` used to call Groq and Gemini directly from the client with
+`EXPO_PUBLIC_*` keys — extractable from a compiled build. This is now fixed:
+both calls go through Supabase Edge Functions (`generate-trail`,
+`generate-caption`) that hold the real keys server-side, verify the caller's
+JWT, and rate-limit per user. See `.claude/rules/security.md` and
+`supabase/migrations/20260927000000_ai_usage_quota.sql`. Still required
+before a public release regardless: **rotate both keys** — they shipped in
+every build made before this fix, and moving them server-side doesn't
+un-leak keys already in artifacts that exist.
 
 ## Tooling: graphify (decided, revisit later)
 
@@ -62,12 +65,12 @@ a session — not simply because a feature is large.
 This is the plan's real intent — going from capstone to a public app on the
 Play Store / App Store. In rough priority order:
 
-1. **Move the Groq/Gemini keys server-side** — a Supabase Edge Function per
-   key, holding the real secret, verifying the caller's JWT, rate-limited per
-   user. See `.claude/rules/security.md`. This is the single most important
-   item; both keys are extractable from any build shipped today.
-2. **Full RLS audit** on every table, and especially on `conversations` /
-   `messages` before chat ships to real users.
+1. ~~Move the Groq/Gemini keys server-side~~ — done, see "Resolved
+   simplifications" above. Still owed: rotating both keys, since prior builds
+   already shipped them.
+2. ~~Full RLS audit~~ — done across chat/notifications and the legacy
+   pre-migration-tracking tables. Re-run informally whenever a new table or
+   RPC is added, rather than as a standing checklist item.
 3. **Real push notifications** — `expo-notifications` + a server-side trigger.
 4. **Error monitoring in production** (e.g. Sentry) — currently none.
 5. **Store compliance** — privacy policy, data-safety declarations, an account

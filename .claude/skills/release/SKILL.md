@@ -23,11 +23,15 @@ Run the `review-changes` skill over everything since the last release tag.
 
 Run the `security-reviewer` subagent. Then confirm by hand:
 
-- [ ] **`EXPO_PUBLIC_GROQ_API_KEY` and `EXPO_PUBLIC_GEMINI_API_KEY` are still in
-      the client bundle.** They are extractable from any shipped build and billed
-      to the owner. If they haven't moved behind an Edge Function, tell the user
-      explicitly that shipping exposes them — this is a decision they must make
-      knowingly, not a detail to skip.
+- [ ] **Groq/Gemini keys were rotated after moving behind Edge Functions.**
+      They now live server-side only (`supabase/functions/generate-trail`,
+      `generate-caption`), but every build shipped before that change still
+      has the old keys embedded and extractable. Moving them server-side
+      doesn't un-leak a key that already shipped — confirm both were rotated
+      at Groq/Google AI Studio and the new values are set via
+      `supabase secrets set`, not just that the client no longer reads them.
+      Also confirm `lib/ai.ts` has no direct vendor `fetch()` and no
+      `EXPO_PUBLIC_*` vendor key was reintroduced.
 - [ ] RLS is enabled and correct on every table: `profiles`, `spots`,
       `spot_likes`, `spot_comments`, `comment_likes`, `saved_spots`,
       `connections`, `trails`

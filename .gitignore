@@ -42,6 +42,10 @@ app-example
 /ios
 /android
 
+# Supabase CLI local state — not project source, differs per machine
+supabase/.temp/
+supabase/.branches/
+
 #env
 .env
 .env.*.local

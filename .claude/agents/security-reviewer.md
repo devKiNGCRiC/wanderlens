@@ -23,9 +23,11 @@ requests with it. Nothing enforced only on the client is enforced at all.
 **Client-exposed keys**
 - Every `EXPO_PUBLIC_*` variable is in the shipped bundle. Supabase URL and anon
   key are fine *provided RLS holds*. A third-party billable key is not.
-- `EXPO_PUBLIC_GROQ_API_KEY` and `EXPO_PUBLIC_GEMINI_API_KEY` in `lib/ai.ts` are
-  a known open finding — extractable and billed to the owner. Re-flag it if AI
-  code changed, and flag any newly added vendor key on the client.
+- `lib/ai.ts` calls Groq/Gemini through Supabase Edge Functions
+  (`generate-trail`, `generate-caption`), not directly — the real keys live
+  server-side. Flag it as a regression if `lib/ai.ts` ever grows a direct
+  `fetch()` to a vendor again, or if a new AI feature adds an `EXPO_PUBLIC_*`
+  vendor key on the client instead of following this same pattern.
 - Hardcoded credentials, tokens, or bearer strings in source.
 
 **Authorization**

@@ -1,28 +1,35 @@
 # Security rules
 
-## The one that matters most right now
+## `EXPO_PUBLIC_*` variables
 
 `EXPO_PUBLIC_*` variables are **inlined into the JavaScript bundle at build
 time**. Anyone can unzip a released APK/IPA and read them. They are configuration,
-not secrets.
+not secrets — only ever put something here if it's fine for it to be public.
 
-This project currently ships four:
+This project currently ships two:
 
 | Variable | Safe to expose? |
 |---|---|
 | `EXPO_PUBLIC_SUPABASE_URL` | Yes — public by design |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes — **only if RLS is enforced on every table** |
-| `EXPO_PUBLIC_GROQ_API_KEY` | **No.** Billable third-party key, extractable from the build |
-| `EXPO_PUBLIC_GEMINI_API_KEY` | **No.** Same problem |
 
-The Groq and Gemini keys are billed to the project owner and have no per-user
-scoping. Shipped in a public build, anyone can extract and spend against them.
+## AI calls go through Edge Functions, not the client
 
-**The fix** is to move both calls in `lib/ai.ts` behind a Supabase Edge Function:
-the function holds the real key as a server-side secret, verifies the caller's
-JWT, rate-limits per user, and the app calls the function instead of the vendor.
-Raise this whenever AI code is touched; don't add a third vendor key on the
-client.
+The Groq (trail generation) and Gemini (caption suggestion) API keys used to be
+shipped as `EXPO_PUBLIC_GROQ_API_KEY`/`EXPO_PUBLIC_GEMINI_API_KEY` — extractable
+from any build, billed to the project owner, no per-user scoping. That's fixed:
+`lib/ai.ts` now calls `supabase.functions.invoke('generate-trail' | 'generate-caption', ...)`
+instead of `fetch()`ing the vendor directly. The real keys live only as Supabase
+Edge Function secrets (`GROQ_API_KEY`, `GEMINI_API_KEY` — no `EXPO_PUBLIC_`
+prefix, set via `supabase secrets set`, never in `.env`).
+
+Each function (`supabase/functions/generate-trail`, `supabase/functions/generate-caption`)
+verifies the caller's JWT and rate-limits per user via `consume_ai_quota()`
+(`supabase/migrations/20260927000000_ai_usage_quota.sql`) before spending a
+vendor call — see that migration's header comment for why there's deliberately
+no service-role key and no refund path. **Don't add a third vendor key to the
+client** — if a new AI feature needs a key, it gets its own Edge Function
+following this same pattern, never an `EXPO_PUBLIC_*` var.
 
 ## Secrets hygiene
 

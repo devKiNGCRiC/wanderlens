@@ -22,7 +22,13 @@
       "Bash(npx expo prebuild:*)",
       "Bash(eas build:*)",
       "Bash(eas submit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(npx supabase db push:*)",
+      "Bash(npx supabase db pull:*)",
+      "Bash(npx supabase db reset:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase db pull:*)",
+      "Bash(supabase db reset:*)"
     ]
   }
 }
