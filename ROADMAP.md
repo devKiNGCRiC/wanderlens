@@ -80,8 +80,16 @@ Play Store / App Store. In rough priority order:
    doesn't spam the project. Requires `EXPO_PUBLIC_SENTRY_DSN` in `.env` and
    `SENTRY_AUTH_TOKEN` as an EAS secret (source-map upload only, never
    client-side) — both are the user's own Sentry account credentials.
-5. **Store compliance** — privacy policy, data-safety declarations, an account
-   deletion flow (required by both stores if accounts + user content exist).
+5. **Store compliance** — privacy policy and data-safety declarations still
+   needed (both require the user's own factual input, not something to draft
+   speculatively). ~~Account deletion~~ — done:
+   `supabase/functions/delete-account`, wired up from a "Danger zone" in
+   `app/edit-profile.tsx`. Anonymizes `profiles` in place (spots/messages
+   stay attributed to "Deleted user," per the product decision that
+   crowdsourced spots have value beyond their contributor) and soft-deletes
+   the `auth.users` row via `auth.admin.deleteUser(id, true)` — the first
+   service-role-key usage in this project, worth an extra review pass before
+   it ships.
 6. Everything else in "Deferred for later" above, roughly in the order that
    matches user value once the above is solid.
 
