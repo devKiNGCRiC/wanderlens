@@ -13,6 +13,7 @@ import { ActionSheet } from '@/components/ActionSheet';
 import { flagEmoji, COUNTRIES } from '@/constants/countries';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type MySpot = { id: string; title: string; photo_url: string | null; genre: string | null };
 
@@ -26,6 +27,7 @@ function formatUserType(type: string | null) {
 export default function ProfileScreen() {
   const router = useRouter();
   const { session, profile, signOut } = useAuth();
+  const insets = useSafeAreaInsets();
   const [mySpots, setMySpots] = useState<MySpot[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
@@ -79,7 +81,7 @@ export default function ProfileScreen() {
                   <LinearGradient colors={['#C9683E', '#4B3F72', theme.color.dusk]} style={StyleSheet.absoluteFill} />
                 )}
                 <LinearGradient colors={['transparent', theme.color.dusk]} style={styles.bannerScrim} />
-                <Pressable onPress={() => setMenuVisible(true)} style={styles.menuIcon} accessibilityLabel="Menu">
+                <Pressable onPress={() => setMenuVisible(true)} style={[styles.menuIcon, { top: insets.top + 12 }]} accessibilityLabel="Menu">
                   <Ionicons name="menu" size={20} color={theme.color.cream} />
                 </Pressable>
               </View>
