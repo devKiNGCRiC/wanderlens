@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
 import { TagInfoModal } from '@/components/TagInfoModal';
 import { ShareProfileModal } from '@/components/ShareProfileModal';
+import { ActionSheet } from '@/components/ActionSheet';
 import { flagEmoji, COUNTRIES } from '@/constants/countries';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
@@ -30,6 +31,7 @@ export default function ProfileScreen() {
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [infoTag, setInfoTag] = useState<string | null>(null);
   const [shareVisible, setShareVisible] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -77,8 +79,8 @@ export default function ProfileScreen() {
                   <LinearGradient colors={['#C9683E', '#4B3F72', theme.color.dusk]} style={StyleSheet.absoluteFill} />
                 )}
                 <LinearGradient colors={['transparent', theme.color.dusk]} style={styles.bannerScrim} />
-                <Pressable onPress={handleSignOut} style={styles.signOutIcon}>
-                  <Ionicons name="log-out-outline" size={18} color={theme.color.cream} />
+                <Pressable onPress={() => setMenuVisible(true)} style={styles.menuIcon} accessibilityLabel="Menu">
+                  <Ionicons name="menu" size={20} color={theme.color.cream} />
                 </Pressable>
               </View>
 
@@ -179,6 +181,14 @@ export default function ProfileScreen() {
         {session && (
           <ShareProfileModal visible={shareVisible} onClose={() => setShareVisible(false)} userId={session.user.id} name={profile?.full_name || 'this traveler'} />
         )}
+        <ActionSheet
+          visible={menuVisible}
+          onClose={() => setMenuVisible(false)}
+          options={[
+            { key: 'about', label: 'About Wanderlens', icon: 'information-circle-outline', onPress: () => router.push('/about') },
+            { key: 'signout', label: 'Sign out', icon: 'log-out-outline', destructive: true, onPress: handleSignOut },
+          ]}
+        />
       </ScreenBackground>
     </>
   );
@@ -188,7 +198,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, },
   banner: { height: 160, backgroundColor: theme.color.surface },
   bannerScrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 60 },
-  signOutIcon: { position: 'absolute', top: 16, right: 16, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
+  menuIcon: { position: 'absolute', top: 16, right: 16, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   header: { padding: 24, paddingTop: 0 },
   avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginTop: -46, borderWidth: 4, borderColor: theme.color.dusk },
   avatarImage: { width: '100%', height: '100%' },
