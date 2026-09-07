@@ -20,9 +20,9 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: theme.color.surface,
           borderTopColor: theme.color.surface2,
-          height: 56 + insets.bottom,
+          height: 64 + insets.bottom,
           paddingTop: 8,
-          paddingBottom: insets.bottom + 8,
+          paddingBottom: insets.bottom + 16,
         },
       }}>
       <Tabs.Screen

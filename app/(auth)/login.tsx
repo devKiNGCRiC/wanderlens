@@ -37,7 +37,8 @@ export default function Login() {
           {loading ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.buttonText}>Log in</Text>}
         </Pressable>
 
-        <Link href="/(auth)/signup" style={styles.link}>Don't have an account? Sign up</Link>
+        <Link href="/(auth)/forgot-password" style={styles.link}>Forgot password?</Link>
+        <Link href="/(auth)/signup" style={styles.link}>Don&apos;t have an account? Sign up</Link>
       </View>
     </ScreenBackground>
   );

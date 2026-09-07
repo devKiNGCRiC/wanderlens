@@ -36,16 +36,23 @@ function RootNavigator() {
     Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold,
     IBMPlexMono_400Regular, IBMPlexMono_500Medium,
   });
-  const { session, profile, loading } = useAuth();
+  const { session, profile, loading, recoveryTokens } = useAuth();
 
   if (!fontsLoaded) return <SplashLoading />;
   if (loading) return <SplashLoading />;
 
   const isOnboarded = !!profile?.onboarded;
+  const inRecovery = !!recoveryTokens;
 
   return (
     <Stack>
-      <Stack.Protected guard={!!session && isOnboarded}>
+      {/* Highest priority and mutually exclusive with the three below — a
+          recovery-link tap must always land here, regardless of whether the
+          user happens to already have a normal session. */}
+      <Stack.Protected guard={inRecovery}>
+        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
+      </Stack.Protected>
+      <Stack.Protected guard={!inRecovery && !!session && isOnboarded}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         <Stack.Screen name="add-spot" options={{ presentation: 'modal', title: 'Add a spot' }} />
@@ -57,10 +64,10 @@ function RootNavigator() {
         <Stack.Screen name="new-message" options={{ presentation: 'modal', title: 'New message' }} />
         <Stack.Screen name="create-group" options={{ presentation: 'modal', title: 'New group' }} />
       </Stack.Protected>
-      <Stack.Protected guard={!!session && !isOnboarded}>
+      <Stack.Protected guard={!inRecovery && !!session && !isOnboarded}>
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       </Stack.Protected>
-      <Stack.Protected guard={!session}>
+      <Stack.Protected guard={!inRecovery && !session}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       </Stack.Protected>
     </Stack>
