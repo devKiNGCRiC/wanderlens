@@ -12,5 +12,13 @@ module.exports = ({ config }) => ({
       'expo-audio',
       { microphonePermission: 'Allow Wanderlens to access your microphone to record voice messages.' },
     ],
+    [
+      '@sentry/react-native/expo',
+      {
+        url: 'https://sentry.io/',
+        organization: 'dev-king',
+        project: 'wanderlens',
+      },
+    ],
   ],
 });

@@ -2,6 +2,7 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as Sentry from '@sentry/react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -14,6 +15,16 @@ import { useFonts, Fraunces_500Medium, Fraunces_500Medium_Italic } from '@expo-g
 import { Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold } from '@expo-google-fonts/manrope';
 import { IBMPlexMono_400Regular, IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono';
 
+// The DSN is public/client-embeddable by design (unlike the Groq/Gemini keys)
+// — it only identifies which Sentry project to report to. Still routed
+// through EXPO_PUBLIC_* for consistency with how EXPO_PUBLIC_SUPABASE_URL is
+// handled, and so it isn't hardcoded into source.
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+  enabled: !__DEV__,
+  sendDefaultPii: true,
+  tracesSampleRate: 1.0,
+});
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -55,7 +66,7 @@ function RootNavigator() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
@@ -71,3 +82,5 @@ export default function RootLayout() {
     </AuthProvider>
   );
 }
+
+export default Sentry.wrap(RootLayout);

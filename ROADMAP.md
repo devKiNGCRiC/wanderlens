@@ -72,7 +72,14 @@ Play Store / App Store. In rough priority order:
    pre-migration-tracking tables. Re-run informally whenever a new table or
    RPC is added, rather than as a standing checklist item.
 3. **Real push notifications** — `expo-notifications` + a server-side trigger.
-4. **Error monitoring in production** (e.g. Sentry) — currently none.
+   Deliberately deferred (see CLAUDE.md) — do not re-propose without the user
+   asking; the "real-world deployable" framing here doesn't override that.
+4. ~~Error monitoring in production~~ — done. `@sentry/react-native` is wired
+   in (`app/_layout.tsx`, `metro.config.js`, the `@sentry/react-native/expo`
+   plugin in `app.config.js`), disabled in `__DEV__` so local development
+   doesn't spam the project. Requires `EXPO_PUBLIC_SENTRY_DSN` in `.env` and
+   `SENTRY_AUTH_TOKEN` as an EAS secret (source-map upload only, never
+   client-side) — both are the user's own Sentry account credentials.
 5. **Store compliance** — privacy policy, data-safety declarations, an account
    deletion flow (required by both stores if accounts + user content exist).
 6. Everything else in "Deferred for later" above, roughly in the order that

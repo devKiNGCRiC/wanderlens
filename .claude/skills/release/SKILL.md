@@ -51,6 +51,10 @@ Run the `security-reviewer` subagent. Then confirm by hand:
 - [ ] `eas.json` profile is the one intended
 - [ ] Every `EXPO_PUBLIC_*` the app reads is set in the EAS build environment —
       a missing one fails at runtime, not at build time
+- [ ] `EXPO_PUBLIC_SENTRY_DSN` is set in the EAS build environment, and
+      `SENTRY_AUTH_TOKEN` is set as an EAS secret (sensitive visibility) so
+      source maps upload during the build — a missing DSN means production
+      crashes silently vanish instead of reporting
 
 ## 4. Manual smoke test on a real build
 
