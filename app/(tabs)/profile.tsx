@@ -57,6 +57,26 @@ export default function ProfileScreen() {
     ]);
   }
 
+  function handleDeleteAccount() {
+    Alert.alert(
+      'Delete your account?',
+      'This permanently removes your profile, messages, connections, and saved items. Spots you added stay on the map, credited to "Deleted user." This can\'t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account', style: 'destructive', onPress: async () => {
+            const { error } = await supabase.functions.invoke('delete-account');
+            if (error) {
+              Alert.alert('Could not delete your account', 'Please try again.');
+              return;
+            }
+            await signOut();
+          },
+        },
+      ],
+    );
+  }
+
   const initial = profile?.full_name?.charAt(0)?.toUpperCase() || '?';
   const typeLabel = formatUserType(profile?.user_type ?? null);
   const countryCode = COUNTRIES.find((c) => c.name === profile?.country)?.code;
@@ -189,6 +209,7 @@ export default function ProfileScreen() {
           options={[
             { key: 'about', label: 'About Wanderlens', icon: 'information-circle-outline', onPress: () => router.push('/about') },
             { key: 'signout', label: 'Sign out', icon: 'log-out-outline', destructive: true, onPress: handleSignOut },
+            { key: 'delete', label: 'Delete account', icon: 'trash-outline', destructive: true, onPress: handleDeleteAccount },
           ]}
         />
       </ScreenBackground>

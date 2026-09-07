@@ -27,7 +27,7 @@ type PickedImage = { uri: string; base64: string };
 
 export default function EditProfile() {
   const router = useRouter();
-  const { session, profile, refreshProfile, signOut } = useAuth();
+  const { session, profile, refreshProfile } = useAuth();
   const insets = useSafeAreaInsets();
 
   const [fullName, setFullName] = useState(profile?.full_name || '');
@@ -47,7 +47,6 @@ export default function EditProfile() {
   const [avatarImage, setAvatarImage] = useState<PickedImage | null>(null);
   const [bannerImage, setBannerImage] = useState<PickedImage | null>(null);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
 
   function toggleGenre(g: string) {
@@ -89,33 +88,6 @@ export default function EditProfile() {
     const { error } = await supabase.storage.from('profile-media').upload(fileName, decode(base64), { contentType: 'image/jpeg', upsert: true });
     if (error) throw error;
     return supabase.storage.from('profile-media').getPublicUrl(fileName).data.publicUrl;
-  }
-
-  function confirmDeleteAccount() {
-    Alert.alert(
-      'Delete your account?',
-      'This permanently removes your profile, messages, connections, and saved items. Spots you added stay on the map, credited to "Deleted user." This can\'t be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete account', style: 'destructive', onPress: handleDeleteAccount },
-      ],
-    );
-  }
-
-  async function handleDeleteAccount() {
-    setDeleting(true);
-    try {
-      const { error } = await supabase.functions.invoke('delete-account');
-      if (error) {
-        Alert.alert('Could not delete your account', 'Please try again.');
-        return;
-      }
-      await signOut();
-    } catch {
-      Alert.alert('Could not delete your account', 'Please try again.');
-    } finally {
-      setDeleting(false);
-    }
   }
 
   async function handleSave() {
@@ -275,13 +247,6 @@ export default function EditProfile() {
                 {saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.submitText}>Save changes</Text>}
             </Pressable>
 
-            <View style={styles.dangerZone}>
-                <Text style={styles.dangerLabel}>Danger zone</Text>
-                <Pressable style={styles.dangerBtn} onPress={confirmDeleteAccount} disabled={deleting}>
-                    {deleting ? <ActivityIndicator color={theme.color.ember} /> : <Text style={styles.dangerBtnText}>Delete my account</Text>}
-                </Pressable>
-            </View>
-
             <CountryPicker visible={countryPickerVisible} onClose={() => setCountryPickerVisible(false)} onSelect={setCountry} />
         </KeyboardAwareScrollView>
     </ScreenBackground>
@@ -313,8 +278,4 @@ const styles = StyleSheet.create({
     addBtnText: { color: theme.color.cream, fontFamily: theme.font.body, fontSize: 13 },
     submit: { backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 15, alignItems: 'center', marginTop: 28 },
     submitText: { color: theme.color.dusk, fontFamily: theme.font.body, fontSize: 15 },
-    dangerZone: { marginTop: 40, paddingTop: 20, borderTopWidth: 1, borderTopColor: theme.color.surface2 },
-    dangerLabel: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted, marginBottom: 12 },
-    dangerBtn: { borderRadius: theme.radius.md, paddingVertical: 15, alignItems: 'center', borderWidth: 1, borderColor: theme.color.ember },
-    dangerBtnText: { color: theme.color.ember, fontFamily: theme.font.body, fontSize: 15 },
 });
