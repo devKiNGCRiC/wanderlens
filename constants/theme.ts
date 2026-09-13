@@ -19,6 +19,9 @@ export const theme = {
     // A stronger gold tint than goldTint (0.06) — for a badge that needs to
     // read clearly, e.g. an "Admin" pill, not a barely-there highlight.
     goldBadgeTint: 'rgba(232,166,76,0.15)',
+    // A warm sepia wash over a photo — the "vintage" photo style's color
+    // grade, distinct from goldBadgeTint's flat UI-chrome tint.
+    vintageTint: 'rgba(168,110,54,0.32)',
   },
   font: {
     display: 'Fraunces_500Medium',

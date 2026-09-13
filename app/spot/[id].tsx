@@ -45,13 +45,21 @@ export default function SpotDetail() {
   const [replyingTo, setReplyingTo] = useState<{ id: string; handle: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewerVisible, setViewerVisible] = useState(false);
+  const [styledPhotoUrl, setStyledPhotoUrl] = useState<string | null>(null);
   const [commentActionTarget, setCommentActionTarget] = useState<CommentRow | null>(null);
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
-    const { data: spotData } = await supabase.rpc('get_spot', { spot_id: id }).single();
+    // get_spot is a legacy, untracked RPC — rather than risk changing its
+    // return columns blind, styled_photo_url is fetched with a plain
+    // (RLS-covered, spots are public-read) table select instead.
+    const [{ data: spotData }, { data: styledRow }] = await Promise.all([
+      supabase.rpc('get_spot', { spot_id: id }).single(),
+      supabase.from('spots').select('styled_photo_url').eq('id', id).maybeSingle(),
+    ]);
     setSpot(spotData as SpotDetail);
+    setStyledPhotoUrl(styledRow?.styled_photo_url ?? null);
 
     const { count } = await supabase.from('spot_likes').select('*', { count: 'exact', head: true }).eq('spot_id', id);
     setLikeCount(count ?? 0);
@@ -342,7 +350,7 @@ export default function SpotDetail() {
         <Pressable onPress={submitComment} style={styles.sendBtn}><Ionicons name="send" size={17} color={theme.color.dusk} /></Pressable>
       </View>
 
-      <ImageViewer visible={viewerVisible} uri={spot.photo_url} onClose={() => setViewerVisible(false)} />
+      <ImageViewer visible={viewerVisible} uri={styledPhotoUrl ?? spot.photo_url} onClose={() => setViewerVisible(false)} />
 
       <ActionSheet
         visible={!!commentActionTarget}

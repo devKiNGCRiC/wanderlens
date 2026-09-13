@@ -32,6 +32,15 @@ export async function saveViewAsImage(viewRef: RefObject<View | null>): Promise<
   return true;
 }
 
+// Same capture as saveViewAsImage, but returns base64 instead of saving to
+// the gallery — for uploading a composited View (e.g. a styled spot photo)
+// through the same decode() -> supabase.storage.upload() path already used
+// for a plain picked photo, rather than a second, divergent upload route.
+export async function captureViewAsBase64(viewRef: RefObject<View | null>): Promise<string> {
+  const uri = await captureRef(viewRef, { format: 'jpg', quality: 0.92 });
+  return new File(uri).base64();
+}
+
 // Loads just enough of a local audio file to read its duration, for a song
 // picked from the document picker rather than recorded — bounded by a
 // timeout so a file that never loads doesn't hang the send.

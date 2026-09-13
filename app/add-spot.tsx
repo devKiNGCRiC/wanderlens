@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, TextInput, Pressable, Image, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { useRef, useState } from 'react';
+import { View, Text, TextInput, Pressable, Image, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { decode } from 'base64-arraybuffer';
@@ -11,6 +11,9 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { generateCaption } from '@/lib/ai';
 import { ScreenBackground } from '@/components/ScreenBackground';
+import { PhotoStyleFrame, type PhotoStyleKey } from '@/components/PhotoStyleFrame';
+import { PhotoStylePicker } from '@/components/PhotoStylePicker';
+import { captureViewAsBase64 } from '@/lib/media';
 import { useLocationPickerStore } from '@/store/locationPicker';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
 
@@ -32,6 +35,9 @@ export default function AddSpot() {
   const [bestTime, setBestTime] = useState('');
   const [genre, setGenre] = useState<string | null>(null);
   const [image, setImage] = useState<{ uri: string; base64: string } | null>(null);
+  const [photoStyle, setPhotoStyle] = useState<PhotoStyleKey>('none');
+  const stylePreviewRef = useRef<View>(null);
+  const { width } = useWindowDimensions();
   const [saving, setSaving] = useState(false);
   const [showMoreGenres, setShowMoreGenres] = useState(false);
   const [timeOfDay, setTimeOfDay] = useState<string | null>(null);
@@ -159,6 +165,17 @@ export default function AddSpot() {
 
       const { data: publicUrlData } = supabase.storage.from('spot-photos').getPublicUrl(fileName);
 
+      let styledPhotoUrl: string | null = null;
+      if (photoStyle !== 'none') {
+        const styledBase64 = await captureViewAsBase64(stylePreviewRef);
+        const styledFileName = `${session.user.id}/${Date.now()}_styled.jpg`;
+        const { error: styledUploadError } = await supabase.storage
+          .from('spot-photos')
+          .upload(styledFileName, decode(styledBase64), { contentType: 'image/jpeg' });
+        if (styledUploadError) throw styledUploadError;
+        styledPhotoUrl = supabase.storage.from('spot-photos').getPublicUrl(styledFileName).data.publicUrl;
+      }
+
       const { error: insertError } = await supabase.from('spots').insert({
         title,
         description: description || null,
@@ -166,6 +183,7 @@ export default function AddSpot() {
         genre,
         time_of_day: timeOfDay,
         photo_url: publicUrlData.publicUrl,
+        styled_photo_url: styledPhotoUrl,
         location: `SRID=4326;POINT(${resolvedLocation.lng} ${resolvedLocation.lat})`,
         location_label: resolvedLocation.label,
         created_by: session.user.id,
@@ -203,6 +221,19 @@ export default function AddSpot() {
           </View>
         )}
         {image && <Pressable onPress={() => setImage(null)}><Text style={styles.retake}>Choose a different photo</Text></Pressable>}
+
+        {image && (
+          <>
+            <Text style={styles.label}>Add a style (optional)</Text>
+            <PhotoStylePicker value={photoStyle} onChange={setPhotoStyle} />
+            {photoStyle !== 'none' && (
+              <View style={styles.stylePreviewWrap}>
+                <PhotoStyleFrame photoUri={image.uri} style={photoStyle} size={Math.min(width - 96, 280)} innerRef={stylePreviewRef} />
+              </View>
+            )}
+          </>
+        )}
+
         {image && (
           <Pressable onPress={handleSuggestCaption} style={styles.aiSuggestBtn} disabled={generatingCaption}>
             {generatingCaption ? <ActivityIndicator color={theme.color.gold} size="small" /> : <Text style={styles.aiSuggestText}>✨ Suggest title & description</Text>}
@@ -316,6 +347,7 @@ const styles = StyleSheet.create({
   photoBtn: { flex: 1, backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.sm, paddingVertical: 24, alignItems: 'center' },
   photoBtnText: { color: theme.color.cream, fontFamily: theme.font.body },
   preview: { width: '100%', height: 200, borderRadius: theme.radius.sm },
+  stylePreviewWrap: { alignItems: 'center', marginTop: 14 },
   retake: { color: theme.color.gold, fontFamily: theme.font.bodyRegular, fontSize: 12, marginTop: 8, textAlign: 'center' },
   aiSuggestBtn: { marginTop: 10, borderWidth: 1, borderColor: theme.color.gold, borderRadius: 20, paddingVertical: 9, alignItems: 'center' },
   aiSuggestText: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.gold },
