@@ -123,6 +123,13 @@ export default function FeedScreen() {
                   </View>
                 )}
               </Pressable>
+              <Pressable
+                onPress={() => router.push('/photo-studio')}
+                hitSlop={3}
+                style={[styles.styleBtn, { top: insets.top + 10 }]}
+                accessibilityLabel="Photo styles">
+                <Ionicons name="color-wand-outline" size={20} color={theme.color.cream} />
+              </Pressable>
               <View style={styles.heroText}>
                 <Text style={styles.eyebrow}>GOLDEN HOUR · SOON</Text>
                 <Text style={styles.headline}>Chase the <Text style={styles.headlineBold}>light</Text>,{'\n'}{firstName}.</Text>
@@ -237,6 +244,7 @@ const styles = StyleSheet.create({
   hero: { height: 320, overflow: 'hidden' },
   sun: { position: 'absolute', top: 64, right: 52, width: 64, height: 64, borderRadius: 32, backgroundColor: theme.color.gold, opacity: 0.9 },
   bellBtn: { position: 'absolute', left: 16, width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(20,23,31,0.4)', alignItems: 'center', justifyContent: 'center' },
+  styleBtn: { position: 'absolute', right: 16, width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(20,23,31,0.4)', alignItems: 'center', justifyContent: 'center' },
   bellBadge: { position: 'absolute', top: -2, right: -2, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   bellBadgeText: { fontFamily: theme.font.body, fontSize: 9, color: theme.color.cream },
   heroText: { position: 'absolute', left: 26, right: 26, bottom: 26 },

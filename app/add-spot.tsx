@@ -11,8 +11,9 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { generateCaption } from '@/lib/ai';
 import { ScreenBackground } from '@/components/ScreenBackground';
-import { PhotoStyleFrame, type PhotoStyleKey } from '@/components/PhotoStyleFrame';
+import { PhotoStyleFrame, type PhotoStyleKey, type CaptionFontKey } from '@/components/PhotoStyleFrame';
 import { PhotoStylePicker } from '@/components/PhotoStylePicker';
+import { CaptionFontPicker } from '@/components/CaptionFontPicker';
 import { captureViewAsBase64 } from '@/lib/media';
 import { useLocationPickerStore } from '@/store/locationPicker';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
@@ -36,6 +37,8 @@ export default function AddSpot() {
   const [genre, setGenre] = useState<string | null>(null);
   const [image, setImage] = useState<{ uri: string; base64: string } | null>(null);
   const [photoStyle, setPhotoStyle] = useState<PhotoStyleKey>('none');
+  const [styleCaption, setStyleCaption] = useState('');
+  const [styleCaptionFont, setStyleCaptionFont] = useState<CaptionFontKey>('displayItalic');
   const stylePreviewRef = useRef<View>(null);
   const { width } = useWindowDimensions();
   const [saving, setSaving] = useState(false);
@@ -227,9 +230,21 @@ export default function AddSpot() {
             <Text style={styles.label}>Add a style (optional)</Text>
             <PhotoStylePicker value={photoStyle} onChange={setPhotoStyle} />
             {photoStyle !== 'none' && (
-              <View style={styles.stylePreviewWrap}>
-                <PhotoStyleFrame photoUri={image.uri} style={photoStyle} size={Math.min(width - 96, 280)} innerRef={stylePreviewRef} />
-              </View>
+              <>
+                <View style={styles.stylePreviewWrap}>
+                  <PhotoStyleFrame photoUri={image.uri} style={photoStyle} caption={styleCaption} captionFont={styleCaptionFont} size={Math.min(width - 96, 280)} innerRef={stylePreviewRef} />
+                </View>
+                <TextInput
+                  style={[styles.input, { marginTop: 14 }]}
+                  placeholder="Caption on the photo (optional)"
+                  placeholderTextColor={theme.color.muted}
+                  value={styleCaption}
+                  onChangeText={setStyleCaption}
+                  maxLength={80}
+                />
+                <Text style={[styles.label, { marginTop: 14 }]}>Caption font</Text>
+                <CaptionFontPicker value={styleCaptionFont} onChange={setStyleCaptionFont} />
+              </>
             )}
           </>
         )}

@@ -22,6 +22,11 @@ export const theme = {
     // A warm sepia wash over a photo — the "vintage" photo style's color
     // grade, distinct from goldBadgeTint's flat UI-chrome tint.
     vintageTint: 'rgba(168,110,54,0.32)',
+    // Photo-style color washes — same technique as vintageTint, one per
+    // additional style added to PhotoStyleFrame.
+    goldenHourWash: 'rgba(232,166,76,0.30)',
+    blueHourWash: 'rgba(75,63,114,0.42)',
+    noirWash: 'rgba(20,23,31,0.58)',
   },
   font: {
     display: 'Fraunces_500Medium',

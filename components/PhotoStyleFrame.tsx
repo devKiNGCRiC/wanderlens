@@ -3,18 +3,34 @@ import { View, Text, Image, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { theme } from '@/constants/theme';
 
-export type PhotoStyleKey = 'none' | 'polaroid' | 'vintage' | 'filmRetro';
+export type PhotoStyleKey = 'none' | 'polaroid' | 'vintage' | 'filmRetro' | 'goldenHour' | 'blueHour' | 'noir';
+export type CaptionFontKey = keyof typeof theme.font;
 
 type Props = {
   photoUri: string | null;
   caption?: string | null;
   style: PhotoStyleKey;
+  // Overrides the style's default caption font when set — lets the caller
+  // offer a font choice independent of which frame style is picked.
+  captionFont?: CaptionFontKey;
   innerRef?: RefObject<View | null>;
   // Square photo size in px. Defaults to the export resolution used by
   // components/chat/MessageBubble.tsx's polaroid export (640) — pass a
   // smaller value for an on-screen preview that needs to fit the display;
   // the composited result still captures at whatever size is rendered.
   size?: number;
+};
+
+// A tinted style is a photo wash + rounded corners + a caption in its own
+// default font/color — vintage, golden hour, blue hour, and noir are all
+// this same shape, just with a different tint/radius/caption treatment.
+const TINTED_SPECS: Record<'vintage' | 'goldenHour' | 'blueHour' | 'noir', {
+  tint: string; radius: number; captionFont: CaptionFontKey; captionColor: string; uppercase?: boolean;
+}> = {
+  vintage: { tint: theme.color.vintageTint, radius: 16, captionFont: 'displayItalic', captionColor: theme.color.dusk },
+  goldenHour: { tint: theme.color.goldenHourWash, radius: 10, captionFont: 'body', captionColor: theme.color.ember },
+  blueHour: { tint: theme.color.blueHourWash, radius: 10, captionFont: 'displayItalic', captionColor: theme.color.duskPurple },
+  noir: { tint: theme.color.noirWash, radius: 2, captionFont: 'mono', captionColor: theme.color.dusk, uppercase: true },
 };
 
 function formatDateStamp(date: Date) {
@@ -24,7 +40,7 @@ function formatDateStamp(date: Date) {
   return `${mm} ${dd} '${yy}`;
 }
 
-export function PhotoStyleFrame({ photoUri, caption, style, innerRef, size = 640 }: Props) {
+export function PhotoStyleFrame({ photoUri, caption, style, captionFont, innerRef, size = 640 }: Props) {
   const s = useMemo(() => buildStyles(size), [size]);
 
   // A fixed, deterministic scatter of small dots standing in for film grain —
@@ -48,19 +64,7 @@ export function PhotoStyleFrame({ photoUri, caption, style, innerRef, size = 640
         <View style={s.polaroidPhotoWrap}>
           {photoUri && <Image source={{ uri: photoUri }} style={s.photo} />}
         </View>
-        {!!caption && <Text style={s.polaroidCaption}>{caption}</Text>}
-      </View>
-    );
-  }
-
-  if (style === 'vintage') {
-    return (
-      <View ref={innerRef} collapsable={false} style={s.vintageFrame}>
-        <View style={s.vintagePhotoWrap}>
-          {photoUri && <Image source={{ uri: photoUri }} style={s.photo} />}
-          <View style={s.vintageTintOverlay} />
-        </View>
-        {!!caption && <Text style={s.vintageCaption}>{caption}</Text>}
+        {!!caption && <Text style={[s.polaroidCaption, { fontFamily: theme.font[captionFont ?? 'displayItalic'] }]}>{caption}</Text>}
       </View>
     );
   }
@@ -77,7 +81,30 @@ export function PhotoStyleFrame({ photoUri, caption, style, innerRef, size = 640
           </Svg>
           <Text style={s.filmDateStamp}>{formatDateStamp(new Date())}</Text>
         </View>
-        {!!caption && <Text style={s.filmCaption}>{caption}</Text>}
+        {!!caption && <Text style={[s.filmCaption, { fontFamily: theme.font[captionFont ?? 'bodyRegular'] }]}>{caption}</Text>}
+      </View>
+    );
+  }
+
+  if (style === 'vintage' || style === 'goldenHour' || style === 'blueHour' || style === 'noir') {
+    const spec = TINTED_SPECS[style];
+    return (
+      <View ref={innerRef} collapsable={false} style={s.tintedFrame}>
+        <View style={[s.tintedPhotoWrap, { borderRadius: spec.radius }]}>
+          {photoUri && <Image source={{ uri: photoUri }} style={s.photo} />}
+          <View style={[s.tintOverlay, { backgroundColor: spec.tint }]} />
+        </View>
+        {!!caption && (
+          <Text
+            style={[
+              s.tintedCaption,
+              { fontFamily: theme.font[captionFont ?? spec.captionFont], color: spec.captionColor },
+              spec.uppercase && { textTransform: 'uppercase', letterSpacing: 1 },
+            ]}
+          >
+            {caption}
+          </Text>
+        )}
       </View>
     );
   }
@@ -97,16 +124,16 @@ function buildStyles(size: number) {
 
     polaroidFrame: { backgroundColor: theme.color.cream, padding: size * 0.044, paddingBottom: size * 0.072, borderRadius: theme.radius.md, width: size * 1.0875 },
     polaroidPhotoWrap: { width: size, height: size, borderRadius: 6, overflow: 'hidden', backgroundColor: theme.color.surface2 },
-    polaroidCaption: { fontFamily: theme.font.displayItalic, fontSize: size * 0.047, color: theme.color.dusk, marginTop: size * 0.03, textAlign: 'center' },
+    polaroidCaption: { fontSize: size * 0.047, marginTop: size * 0.03, textAlign: 'center', color: theme.color.dusk },
 
-    vintageFrame: { backgroundColor: theme.color.cream, padding: size * 0.022, borderRadius: theme.radius.md, width: size * 1.044 },
-    vintagePhotoWrap: { width: size, height: size, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.color.surface2 },
-    vintageTintOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.color.vintageTint },
-    vintageCaption: { fontFamily: theme.font.displayItalic, fontSize: size * 0.0375, color: theme.color.dusk, marginTop: size * 0.022, textAlign: 'center' },
+    tintedFrame: { backgroundColor: theme.color.cream, padding: size * 0.022, borderRadius: theme.radius.md, width: size * 1.044 },
+    tintedPhotoWrap: { width: size, height: size, overflow: 'hidden', backgroundColor: theme.color.surface2 },
+    tintOverlay: { ...StyleSheet.absoluteFillObject },
+    tintedCaption: { fontSize: size * 0.0375, marginTop: size * 0.022, textAlign: 'center' },
 
     filmFrame: { backgroundColor: theme.color.cream, padding: size * 0.0156, borderRadius: theme.radius.sm, width: size * 1.031 },
     filmPhotoWrap: { width: size, height: size, borderRadius: 4, overflow: 'hidden', backgroundColor: theme.color.surface2 },
     filmDateStamp: { position: 'absolute', right: size * 0.025, bottom: size * 0.022, fontFamily: theme.font.mono, fontSize: size * 0.031, color: theme.color.ember },
-    filmCaption: { fontFamily: theme.font.bodyRegular, fontSize: size * 0.028, color: theme.color.dusk, marginTop: size * 0.019, textAlign: 'center' },
+    filmCaption: { fontSize: size * 0.028, marginTop: size * 0.019, textAlign: 'center', color: theme.color.dusk },
   });
 }

@@ -1,13 +1,15 @@
 import { useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
 import { theme } from '@/constants/theme';
 import { ScreenBackground } from '@/components/ScreenBackground';
-import { PhotoStyleFrame, type PhotoStyleKey } from '@/components/PhotoStyleFrame';
+import { PhotoStyleFrame, type PhotoStyleKey, type CaptionFontKey } from '@/components/PhotoStyleFrame';
 import { PhotoStylePicker } from '@/components/PhotoStylePicker';
+import { CaptionFontPicker } from '@/components/CaptionFontPicker';
 import { saveViewAsImage } from '@/lib/media';
 
 export default function PhotoStudio() {
@@ -18,6 +20,8 @@ export default function PhotoStudio() {
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [styleKey, setStyleKey] = useState<PhotoStyleKey>('polaroid');
+  const [caption, setCaption] = useState('');
+  const [captionFont, setCaptionFont] = useState<CaptionFontKey>('displayItalic');
   const [downloading, setDownloading] = useState(false);
 
   // The frame adds its own margin around the photo (widest for polaroid), so
@@ -62,7 +66,7 @@ export default function PhotoStudio() {
         <View style={{ width: 44 }} />
       </View>
 
-      <View style={styles.container}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" enableOnAndroid extraScrollHeight={28}>
         {!photoUri ? (
           <View style={styles.photoButtons}>
             <Pressable style={styles.photoBtn} onPress={() => pickImage('camera')}>
@@ -77,7 +81,7 @@ export default function PhotoStudio() {
         ) : (
           <>
             <View style={styles.previewWrap}>
-              <PhotoStyleFrame photoUri={photoUri} style={styleKey} size={previewSize} innerRef={previewRef} />
+              <PhotoStyleFrame photoUri={photoUri} style={styleKey} caption={styleKey !== 'none' ? caption : null} captionFont={captionFont} size={previewSize} innerRef={previewRef} />
             </View>
             <Pressable onPress={() => setPhotoUri(null)}>
               <Text style={styles.retake}>Choose a different photo</Text>
@@ -85,6 +89,23 @@ export default function PhotoStudio() {
 
             <Text style={styles.label}>Style</Text>
             <PhotoStylePicker value={styleKey} onChange={setStyleKey} />
+
+            {styleKey !== 'none' && (
+              <>
+                <Text style={styles.label}>Caption</Text>
+                <TextInput
+                  style={styles.captionInput}
+                  placeholder="Add a caption (optional)"
+                  placeholderTextColor={theme.color.muted}
+                  value={caption}
+                  onChangeText={setCaption}
+                  maxLength={80}
+                />
+
+                <Text style={styles.label}>Caption font</Text>
+                <CaptionFontPicker value={captionFont} onChange={setCaptionFont} />
+              </>
+            )}
 
             <Pressable style={styles.downloadBtn} onPress={handleDownload} disabled={downloading}>
               {downloading ? <ActivityIndicator color={theme.color.dusk} /> : (
@@ -96,7 +117,7 @@ export default function PhotoStudio() {
             </Pressable>
           </>
         )}
-      </View>
+      </KeyboardAwareScrollView>
     </ScreenBackground>
   );
 }
@@ -105,13 +126,14 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
   backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
   topBarTitle: { fontFamily: theme.font.display, fontSize: 17, color: theme.color.cream },
-  container: { flex: 1, padding: 24, alignItems: 'center' },
+  container: { flexGrow: 1, padding: 24, alignItems: 'center', paddingBottom: 60 },
   photoButtons: { flexDirection: 'row', gap: 12, width: '100%', marginTop: 40 },
   photoBtn: { flex: 1, backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.sm, paddingVertical: 28, alignItems: 'center', gap: 8 },
   photoBtnText: { color: theme.color.cream, fontFamily: theme.font.body },
   previewWrap: { marginTop: 24, alignItems: 'center' },
   retake: { color: theme.color.gold, fontFamily: theme.font.bodyRegular, fontSize: 12, marginTop: 14, textAlign: 'center' },
   label: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted, marginTop: 28, marginBottom: 10, alignSelf: 'flex-start' },
+  captionInput: { width: '100%', backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, padding: 12, color: theme.color.cream, fontFamily: theme.font.bodyRegular, fontSize: 15, borderWidth: 1, borderColor: theme.color.surface2 },
   downloadBtn: { flexDirection: 'row', gap: 8, backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 15, paddingHorizontal: 32, alignItems: 'center', justifyContent: 'center', marginTop: 28 },
   downloadBtnText: { color: theme.color.dusk, fontFamily: theme.font.body, fontSize: 15 },
 });

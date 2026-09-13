@@ -7,6 +7,9 @@ const OPTIONS: { key: PhotoStyleKey; label: string }[] = [
   { key: 'polaroid', label: 'Polaroid' },
   { key: 'vintage', label: 'Vintage' },
   { key: 'filmRetro', label: 'Film retro' },
+  { key: 'goldenHour', label: 'Golden hour' },
+  { key: 'blueHour', label: 'Blue hour' },
+  { key: 'noir', label: 'Noir' },
 ];
 
 type Props = {
