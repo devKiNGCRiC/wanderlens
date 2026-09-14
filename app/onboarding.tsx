@@ -5,6 +5,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { CountryPicker } from '@/components/CountryPicker';
+import { DateField } from '@/components/DateField';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
 
 const CORE_GENRES = ['Street', 'Landscape', 'Portrait', 'Astro', 'Wildlife', 'Architecture', 'Travel'];
@@ -31,6 +32,9 @@ export default function Onboarding() {
   const [homeCity, setHomeCity] = useState('');
   const [country, setCountry] = useState('');
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
+  const [tripDestination, setTripDestination] = useState('');
+  const [tripStartDate, setTripStartDate] = useState<Date | null>(null);
+  const [tripEndDate, setTripEndDate] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
 
   function toggleGenre(g: string) { setGenres((prev) => (prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g])); }
@@ -47,12 +51,19 @@ export default function Onboarding() {
       Alert.alert('Almost done', 'Please fill in every field before continuing.');
       return;
     }
+    if (tripStartDate && tripEndDate && tripEndDate < tripStartDate) {
+      Alert.alert('Check your trip dates', 'The return date is before the start date.');
+      return;
+    }
     setSaving(true);
     const { error } = await supabase
       .from('profiles')
       .update({
         user_type: userType, photography_genres: genres, place_interests: placeInterests,
         travel_style: travelStyle, home_city: homeCity, country: country || null, onboarded: true,
+        trip_destination: tripDestination || null,
+        trip_start_date: tripStartDate ? tripStartDate.toISOString().slice(0, 10) : null,
+        trip_end_date: tripEndDate ? tripEndDate.toISOString().slice(0, 10) : null,
       })
       .eq('id', session!.user.id);
     setSaving(false);
@@ -104,6 +115,13 @@ export default function Onboarding() {
 
         <Text style={styles.label}>Home city</Text>
         <TextInput style={styles.input} placeholder="e.g. Guwahati" placeholderTextColor={theme.color.muted} value={homeCity} onChangeText={setHomeCity} />
+
+        <Text style={styles.label}>Your next trip (optional)</Text>
+        <TextInput style={styles.input} placeholder="Where are you headed?" placeholderTextColor={theme.color.muted} value={tripDestination} onChangeText={setTripDestination} />
+        <View style={[styles.row, { marginTop: 10 }]}>
+          <View style={{ flex: 1 }}><DateField label="Start date" value={tripStartDate} onChange={setTripStartDate} minimumDate={new Date()} /></View>
+          <View style={{ flex: 1 }}><DateField label="Return date" value={tripEndDate} onChange={setTripEndDate} minimumDate={tripStartDate ?? new Date()} /></View>
+        </View>
 
         <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
           {saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.buttonText}>Continue</Text>}

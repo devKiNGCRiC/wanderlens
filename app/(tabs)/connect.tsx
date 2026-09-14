@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { formatUserType } from '@/lib/formatUserType';
 
-const SEGMENTS = ['Discover', 'Requests', 'Connections'] as const;
+const SEGMENTS = ['Discover', 'Trip', 'Requests', 'Connections'] as const;
 type Segment = typeof SEGMENTS[number];
 const GENRE_FILTERS = ['Street', 'Landscape', 'Portrait', 'Astro', 'Wildlife', 'Architecture', 'Travel'];
 
@@ -27,7 +27,7 @@ function handleOf(p: { username?: string | null; full_name?: string | null }) {
 
 export default function ConnectScreen() {
   const router = useRouter();
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const { segment: paramSegment } = useLocalSearchParams<{ segment?: string }>();
   const [segment, setSegment] = useState<Segment>('Discover');
 
@@ -41,6 +41,7 @@ export default function ConnectScreen() {
     }
   }, [paramSegment]);
   const [people, setPeople] = useState<Person[]>([]);
+  const [tripMatches, setTripMatches] = useState<Person[]>([]);
   const [requests, setRequests] = useState<ConnectionRow[]>([]);
   const [connections, setConnections] = useState<ConnectionRow[]>([]);
   const [genreFilter, setGenreFilter] = useState<string | null>(null);
@@ -49,6 +50,40 @@ export default function ConnectScreen() {
   async function loadDiscover(genre: string | null) {
     const { data, error } = await supabase.rpc('discover_people', { search_genre: genre });
     if (!error && data) setPeople(data as Person[]);
+  }
+  async function loadTripMatches() {
+    if (!session || !profile?.trip_destination || !profile.trip_start_date || !profile.trip_end_date) {
+      setTripMatches([]);
+      return;
+    }
+    // A plain profiles select rather than extending discover_people — that
+    // RPC's SQL isn't in this repo (applied live against Supabase, not
+    // tracked in migrations), so its exact candidate-pool scoping is
+    // unknown. This is lower-risk and doesn't depend on guessing it.
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, username, full_name, avatar_url, user_type, photography_genres, home_city')
+      .ilike('trip_destination', `%${profile.trip_destination}%`)
+      .lte('trip_start_date', profile.trip_end_date)
+      .gte('trip_end_date', profile.trip_start_date)
+      .neq('id', session.user.id);
+    if (!data) { setTripMatches([]); return; }
+
+    type ConnRow = { id: string; status: string; is_requester: boolean };
+    const withStatus = await Promise.all(
+      data.map(async (row): Promise<Person> => {
+        const { data: connData } = await supabase.rpc('get_connection_status', { other_id: row.id }).maybeSingle() as { data: ConnRow | null };
+        return {
+          ...row,
+          latest_photo_url: null,
+          latest_spot_id: null,
+          connection_status: connData?.status ?? 'none',
+          is_requester: connData?.is_requester ?? false,
+          connection_id: connData?.id ?? null,
+        };
+      })
+    );
+    setTripMatches(withStatus);
   }
   async function loadRequests() {
     if (!session) return;
@@ -72,32 +107,82 @@ export default function ConnectScreen() {
   useFocusEffect(useCallback(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([loadDiscover(genreFilter), loadRequests(), loadConnections()]);
+      await Promise.all([loadDiscover(genreFilter), loadTripMatches(), loadRequests(), loadConnections()]);
       setLoading(false);
     })();
-  }, [session]));
+  }, [session, profile?.trip_destination, profile?.trip_start_date, profile?.trip_end_date]));
 
   async function sendRequest(recipientId: string) {
     if (!session) return;
     const { data, error } = await supabase.from('connections').insert({ requester_id: session.user.id, recipient_id: recipientId }).select('id').single();
-    if (!error && data) setPeople((prev) => prev.map((p) => (p.id === recipientId ? { ...p, connection_status: 'pending', is_requester: true, connection_id: data.id } : p)));
+    if (!error && data) {
+      const patch = (p: Person) => (p.id === recipientId ? { ...p, connection_status: 'pending', is_requester: true, connection_id: data.id } : p);
+      setPeople((prev) => prev.map(patch));
+      setTripMatches((prev) => prev.map(patch));
+    }
   }
   async function cancelRequest(connectionId: string, personId: string) {
-    setPeople((prev) => prev.map((p) => (p.id === personId ? { ...p, connection_status: 'none', connection_id: null } : p)));
+    const patch = (p: Person) => (p.id === personId ? { ...p, connection_status: 'none', connection_id: null } : p);
+    setPeople((prev) => prev.map(patch));
+    setTripMatches((prev) => prev.map(patch));
     await supabase.from('connections').delete().eq('id', connectionId);
   }
   async function respondToRequest(id: string, accept: boolean) {
     if (accept) await supabase.from('connections').update({ status: 'accepted' }).eq('id', id);
     else await supabase.from('connections').delete().eq('id', id);
-    loadRequests(); loadConnections(); loadDiscover(genreFilter);
+    loadRequests(); loadConnections(); loadDiscover(genreFilter); loadTripMatches();
   }
   function removeConnection(id: string) {
     Alert.alert('Remove connection?', undefined, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: async () => { await supabase.from('connections').delete().eq('id', id); loadConnections(); loadDiscover(genreFilter); } },
+      { text: 'Remove', style: 'destructive', onPress: async () => { await supabase.from('connections').delete().eq('id', id); loadConnections(); loadDiscover(genreFilter); loadTripMatches(); } },
     ]);
   }
   function applyGenreFilter(g: string | null) { setGenreFilter(g); loadDiscover(g); }
+
+  // Shared by Discover and Trip — same row shape, same connection actions.
+  function renderPersonCard(item: Person) {
+    const typeLabel = formatUserType(item.user_type);
+    return (
+      <View style={styles.personCard}>
+        <View style={styles.cardTopRow}>
+          <Pressable style={styles.personInfo} onPress={() => router.push({ pathname: '/user/[id]', params: { id: item.id } })}>
+            <View style={styles.avatarRing}>
+              <View style={styles.avatar}>
+                {item.avatar_url ? <Image source={{ uri: item.avatar_url }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{handleOf(item).charAt(0).toUpperCase()}</Text>}
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.personName}>{handleOf(item)}</Text>
+              <Text style={styles.personMeta}>{[typeLabel, item.photography_genres?.[0]].filter(Boolean).join(' · ')}</Text>
+              {item.home_city && <Text style={styles.personCity}>📍 {item.home_city}</Text>}
+            </View>
+          </Pressable>
+          {item.latest_photo_url && item.latest_spot_id ? (
+            <Pressable style={styles.thumbWrap} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.latest_spot_id! } })}>
+              <Image source={{ uri: item.latest_photo_url }} style={styles.thumb} />
+              <View style={styles.thumbCornerTL} /><View style={styles.thumbCornerBR} />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {item.connection_status === 'none' && (
+          <Pressable onPress={() => sendRequest(item.id)} style={styles.connectBtn}><Text style={styles.connectBtnText}>Connect</Text></Pressable>
+        )}
+        {item.connection_status === 'pending' && item.is_requester && (
+          <Pressable onPress={() => item.connection_id && cancelRequest(item.connection_id, item.id)} style={styles.pendingBtn}><Text style={styles.pendingBtnText}>Cancel request</Text></Pressable>
+        )}
+        {item.connection_status === 'pending' && !item.is_requester && (
+          <Pressable onPress={() => setSegment('Requests')} style={styles.connectBtn}><Text style={styles.connectBtnText}>Respond</Text></Pressable>
+        )}
+        {item.connection_status === 'accepted' && (
+          <View style={styles.connectedBtn}><Ionicons name="checkmark" size={13} color={theme.color.gold} /><Text style={styles.connectedBtnText}>Connected</Text></View>
+        )}
+      </View>
+    );
+  }
+
+  const hasTrip = !!(profile?.trip_destination && profile?.trip_start_date && profile?.trip_end_date);
 
   return (
     <ScreenBackground>
@@ -131,47 +216,22 @@ export default function ConnectScreen() {
               )}
             />
           }
-          renderItem={({ item }) => {
-            const typeLabel = formatUserType(item.user_type);
-            return (
-              <View style={styles.personCard}>
-                <View style={styles.cardTopRow}>
-                  <Pressable style={styles.personInfo} onPress={() => router.push({ pathname: '/user/[id]', params: { id: item.id } })}>
-                    <View style={styles.avatarRing}>
-                      <View style={styles.avatar}>
-                        {item.avatar_url ? <Image source={{ uri: item.avatar_url }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{handleOf(item).charAt(0).toUpperCase()}</Text>}
-                      </View>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.personName}>{handleOf(item)}</Text>
-                      <Text style={styles.personMeta}>{[typeLabel, item.photography_genres?.[0]].filter(Boolean).join(' · ')}</Text>
-                      {item.home_city && <Text style={styles.personCity}>📍 {item.home_city}</Text>}
-                    </View>
-                  </Pressable>
-                  {item.latest_photo_url && item.latest_spot_id ? (
-                    <Pressable style={styles.thumbWrap} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.latest_spot_id! } })}>
-                      <Image source={{ uri: item.latest_photo_url }} style={styles.thumb} />
-                      <View style={styles.thumbCornerTL} /><View style={styles.thumbCornerBR} />
-                    </Pressable>
-                  ) : null}
-                </View>
-
-                {item.connection_status === 'none' && (
-                  <Pressable onPress={() => sendRequest(item.id)} style={styles.connectBtn}><Text style={styles.connectBtnText}>Connect</Text></Pressable>
-                )}
-                {item.connection_status === 'pending' && item.is_requester && (
-                  <Pressable onPress={() => item.connection_id && cancelRequest(item.connection_id, item.id)} style={styles.pendingBtn}><Text style={styles.pendingBtnText}>Cancel request</Text></Pressable>
-                )}
-                {item.connection_status === 'pending' && !item.is_requester && (
-                  <Pressable onPress={() => setSegment('Requests')} style={styles.connectBtn}><Text style={styles.connectBtnText}>Respond</Text></Pressable>
-                )}
-                {item.connection_status === 'accepted' && (
-                  <View style={styles.connectedBtn}><Ionicons name="checkmark" size={13} color={theme.color.gold} /><Text style={styles.connectedBtnText}>Connected</Text></View>
-                )}
-              </View>
-            );
-          }}
+          renderItem={({ item }) => renderPersonCard(item)}
           ListEmptyComponent={<Text style={styles.emptyText}>No one else here yet — share your profile QR to invite fellow travelers.</Text>}
+        />
+      ) : segment === 'Trip' ? (
+        <FlatList
+          data={tripMatches}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ padding: 20, paddingBottom: 110 }}
+          renderItem={({ item }) => renderPersonCard(item)}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>
+              {hasTrip
+                ? 'No travel matches yet for your trip — check back soon.'
+                : 'Add your travel dates in Edit Profile to find people going the same place.'}
+            </Text>
+          }
         />
       ) : segment === 'Requests' ? (
         <FlatList

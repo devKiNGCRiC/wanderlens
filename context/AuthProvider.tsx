@@ -38,6 +38,9 @@ type Profile = {
   home_city: string | null;
   country: string | null;
   onboarded: boolean;
+  trip_destination: string | null;
+  trip_start_date: string | null;
+  trip_end_date: string | null;
 };
 
 type AuthContextType = {
