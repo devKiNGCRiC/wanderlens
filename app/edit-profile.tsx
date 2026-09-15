@@ -9,6 +9,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { CountryPicker } from '@/components/CountryPicker';
 import { DateField } from '@/components/DateField';
+import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenBackground } from '@/components/ScreenBackground';
@@ -47,7 +48,7 @@ export default function EditProfile() {
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
   const [avatarImage, setAvatarImage] = useState<PickedImage | null>(null);
   const [bannerImage, setBannerImage] = useState<PickedImage | null>(null);
-  const [tripDestination, setTripDestination] = useState(profile?.trip_destination || '');
+  const [tripDestinations, setTripDestinations] = useState<string[]>(profile?.trip_destinations || []);
   const [tripStartDate, setTripStartDate] = useState<Date | null>(profile?.trip_start_date ? new Date(profile.trip_start_date) : null);
   const [tripEndDate, setTripEndDate] = useState<Date | null>(profile?.trip_end_date ? new Date(profile.trip_end_date) : null);
   const [saving, setSaving] = useState(false);
@@ -121,7 +122,7 @@ export default function EditProfile() {
           country: country || null,
           avatar_url: avatarUrl,
           banner_url: bannerUrl,
-          trip_destination: tripDestination || null,
+          trip_destinations: tripDestinations.length > 0 ? tripDestinations : null,
           trip_start_date: tripStartDate ? tripStartDate.toISOString().slice(0, 10) : null,
           trip_end_date: tripEndDate ? tripEndDate.toISOString().slice(0, 10) : null,
         })
@@ -195,7 +196,7 @@ export default function EditProfile() {
             <TextInput style={styles.input} value={homeCity} onChangeText={setHomeCity} placeholderTextColor={theme.color.muted} />
 
             <Text style={styles.label}>Your next trip (optional)</Text>
-            <TextInput style={styles.input} placeholder="Where are you headed?" placeholderTextColor={theme.color.muted} value={tripDestination} onChangeText={setTripDestination} />
+            <PlaceAutocomplete value={tripDestinations} onChange={setTripDestinations} />
             <View style={[styles.row, { marginTop: 10 }]}>
                 <View style={{ flex: 1 }}><DateField label="Start date" value={tripStartDate} onChange={setTripStartDate} minimumDate={new Date()} /></View>
                 <View style={{ flex: 1 }}><DateField label="Return date" value={tripEndDate} onChange={setTripEndDate} minimumDate={tripStartDate ?? new Date()} /></View>

@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { CountryPicker } from '@/components/CountryPicker';
 import { DateField } from '@/components/DateField';
+import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
 
 const CORE_GENRES = ['Street', 'Landscape', 'Portrait', 'Astro', 'Wildlife', 'Architecture', 'Travel'];
@@ -32,7 +33,7 @@ export default function Onboarding() {
   const [homeCity, setHomeCity] = useState('');
   const [country, setCountry] = useState('');
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
-  const [tripDestination, setTripDestination] = useState('');
+  const [tripDestinations, setTripDestinations] = useState<string[]>([]);
   const [tripStartDate, setTripStartDate] = useState<Date | null>(null);
   const [tripEndDate, setTripEndDate] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
@@ -61,7 +62,7 @@ export default function Onboarding() {
       .update({
         user_type: userType, photography_genres: genres, place_interests: placeInterests,
         travel_style: travelStyle, home_city: homeCity, country: country || null, onboarded: true,
-        trip_destination: tripDestination || null,
+        trip_destinations: tripDestinations.length > 0 ? tripDestinations : null,
         trip_start_date: tripStartDate ? tripStartDate.toISOString().slice(0, 10) : null,
         trip_end_date: tripEndDate ? tripEndDate.toISOString().slice(0, 10) : null,
       })
@@ -117,7 +118,7 @@ export default function Onboarding() {
         <TextInput style={styles.input} placeholder="e.g. Guwahati" placeholderTextColor={theme.color.muted} value={homeCity} onChangeText={setHomeCity} />
 
         <Text style={styles.label}>Your next trip (optional)</Text>
-        <TextInput style={styles.input} placeholder="Where are you headed?" placeholderTextColor={theme.color.muted} value={tripDestination} onChangeText={setTripDestination} />
+        <PlaceAutocomplete value={tripDestinations} onChange={setTripDestinations} />
         <View style={[styles.row, { marginTop: 10 }]}>
           <View style={{ flex: 1 }}><DateField label="Start date" value={tripStartDate} onChange={setTripStartDate} minimumDate={new Date()} /></View>
           <View style={{ flex: 1 }}><DateField label="Return date" value={tripEndDate} onChange={setTripEndDate} minimumDate={tripStartDate ?? new Date()} /></View>

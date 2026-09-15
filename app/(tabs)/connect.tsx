@@ -52,7 +52,7 @@ export default function ConnectScreen() {
     if (!error && data) setPeople(data as Person[]);
   }
   async function loadTripMatches() {
-    if (!session || !profile?.trip_destination || !profile.trip_start_date || !profile.trip_end_date) {
+    if (!session || !profile?.trip_destinations?.length || !profile.trip_start_date || !profile.trip_end_date) {
       setTripMatches([]);
       return;
     }
@@ -60,10 +60,14 @@ export default function ConnectScreen() {
     // RPC's SQL isn't in this repo (applied live against Supabase, not
     // tracked in migrations), so its exact candidate-pool scoping is
     // unknown. This is lower-risk and doesn't depend on guessing it.
+    // `overlaps` is an exact array-element match (destinations are stored
+    // trimmed + lowercased on save) — not fuzzy, e.g. "paris" won't match
+    // "paris, france"; real spelling/format consistency is a planned
+    // follow-up (place autocomplete), not solved here.
     const { data } = await supabase
       .from('profiles')
       .select('id, username, full_name, avatar_url, user_type, photography_genres, home_city')
-      .ilike('trip_destination', `%${profile.trip_destination}%`)
+      .overlaps('trip_destinations', profile.trip_destinations)
       .lte('trip_start_date', profile.trip_end_date)
       .gte('trip_end_date', profile.trip_start_date)
       .neq('id', session.user.id);
@@ -110,7 +114,7 @@ export default function ConnectScreen() {
       await Promise.all([loadDiscover(genreFilter), loadTripMatches(), loadRequests(), loadConnections()]);
       setLoading(false);
     })();
-  }, [session, profile?.trip_destination, profile?.trip_start_date, profile?.trip_end_date]));
+  }, [session, profile?.trip_destinations, profile?.trip_start_date, profile?.trip_end_date]));
 
   async function sendRequest(recipientId: string) {
     if (!session) return;
@@ -182,7 +186,7 @@ export default function ConnectScreen() {
     );
   }
 
-  const hasTrip = !!(profile?.trip_destination && profile?.trip_start_date && profile?.trip_end_date);
+  const hasTrip = !!(profile?.trip_destinations?.length && profile?.trip_start_date && profile?.trip_end_date);
 
   return (
     <ScreenBackground>
