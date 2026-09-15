@@ -14,6 +14,7 @@ import { ScreenBackground } from '@/components/ScreenBackground';
 import { FilterSheet } from '@/components/FilterSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 import { formatUserType } from '@/lib/formatUserType';
+import { excludeDeletedProfiles } from '@/lib/profiles';
 
 type NearbySpot = { id: string; title: string; best_time: string | null; photo_url: string | null };
 type Photographer = { id: string; username: string | null; full_name: string | null; avatar_url: string | null; user_type: string | null; photography_genres: string[] | null };
@@ -70,7 +71,7 @@ export default function FeedScreen() {
             supabase.rpc('nearby_photographers', { lat: loc.lat, long: loc.lng, radius_km: 30 }),
           ]);
           if (nearbyRes.data) setNearbySpots((nearbyRes.data as NearbySpot[]).slice(0, 6));
-          if (peopleRes.data) setPhotographers(peopleRes.data as Photographer[]);
+          if (peopleRes.data) setPhotographers(await excludeDeletedProfiles(peopleRes.data as Photographer[]));
         }
         setLoading(false);
       })();

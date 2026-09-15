@@ -7,6 +7,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { formatUserType } from '@/lib/formatUserType';
+import { excludeDeletedProfiles } from '@/lib/profiles';
 
 const SEGMENTS = ['Discover', 'Trip', 'Requests', 'Connections'] as const;
 type Segment = typeof SEGMENTS[number];
@@ -49,7 +50,8 @@ export default function ConnectScreen() {
 
   async function loadDiscover(genre: string | null) {
     const { data, error } = await supabase.rpc('discover_people', { search_genre: genre });
-    if (!error && data) setPeople(data as Person[]);
+    if (error || !data) return;
+    setPeople(await excludeDeletedProfiles(data as Person[]));
   }
   async function loadTripMatches() {
     if (!session || !profile?.trip_destinations?.length || !profile.trip_start_date || !profile.trip_end_date) {
@@ -70,7 +72,8 @@ export default function ConnectScreen() {
       .overlaps('trip_destinations', profile.trip_destinations)
       .lte('trip_start_date', profile.trip_end_date)
       .gte('trip_end_date', profile.trip_start_date)
-      .neq('id', session.user.id);
+      .neq('id', session.user.id)
+      .is('deleted_at', null);
     if (!data) { setTripMatches([]); return; }
 
     type ConnRow = { id: string; status: string; is_requester: boolean };
