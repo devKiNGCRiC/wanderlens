@@ -46,20 +46,28 @@ export default function SpotDetail() {
   const [loading, setLoading] = useState(true);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [styledPhotoUrl, setStyledPhotoUrl] = useState<string | null>(null);
+  const [geoTag, setGeoTag] = useState<{
+    capture_lat: number | null; capture_lng: number | null; capture_altitude: number | null;
+    captured_at: string | null; weather_temp_c: number | null; weather_condition: string | null;
+  } | null>(null);
   const [commentActionTarget, setCommentActionTarget] = useState<CommentRow | null>(null);
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
     // get_spot is a legacy, untracked RPC — rather than risk changing its
-    // return columns blind, styled_photo_url is fetched with a plain
-    // (RLS-covered, spots are public-read) table select instead.
-    const [{ data: spotData }, { data: styledRow }] = await Promise.all([
+    // return columns blind, styled_photo_url and the geo-tag capture
+    // columns are fetched with a plain (RLS-covered, spots are public-read)
+    // table select instead.
+    const [{ data: spotData }, { data: extraRow }] = await Promise.all([
       supabase.rpc('get_spot', { spot_id: id }).single(),
-      supabase.from('spots').select('styled_photo_url').eq('id', id).maybeSingle(),
+      supabase.from('spots')
+        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition')
+        .eq('id', id).maybeSingle(),
     ]);
     setSpot(spotData as SpotDetail);
-    setStyledPhotoUrl(styledRow?.styled_photo_url ?? null);
+    setStyledPhotoUrl(extraRow?.styled_photo_url ?? null);
+    setGeoTag(extraRow ?? null);
 
     const { count } = await supabase.from('spot_likes').select('*', { count: 'exact', head: true }).eq('spot_id', id);
     setLikeCount(count ?? 0);
@@ -218,6 +226,13 @@ export default function SpotDetail() {
           </View>
           {spot.description && <Text style={styles.description}>{spot.description}</Text>}
           <Text style={styles.timeAgo}>{formatTimeAgo(spot.created_at)}</Text>
+          {geoTag?.capture_lat != null && geoTag?.capture_lng != null && (
+            <Text style={styles.geoTagText}>
+              📍 Captured live · {geoTag.capture_lat.toFixed(4)}, {geoTag.capture_lng.toFixed(4)}
+              {geoTag.capture_altitude != null ? ` · ${Math.round(geoTag.capture_altitude)}m` : ''}
+              {geoTag.weather_temp_c != null ? ` · ${Math.round(geoTag.weather_temp_c)}°C${geoTag.weather_condition ? `, ${geoTag.weather_condition}` : ''}` : ''}
+            </Text>
+          )}
 
           <View style={styles.actionRow}>
             <Pressable onPress={toggleLike} style={styles.actionBtn}>
@@ -383,6 +398,7 @@ const styles = StyleSheet.create({
   tagText: { fontFamily: theme.font.mono, fontSize: 10.5, color: theme.color.gold },
   description: { fontFamily: theme.font.bodyRegular, fontSize: 14, color: theme.color.cream, marginTop: 14, lineHeight: 20 },
   timeAgo: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted, marginTop: 8 },
+  geoTagText: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.gold, marginTop: 4 },
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: theme.color.surface2 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   actionText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },

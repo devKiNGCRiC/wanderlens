@@ -16,6 +16,7 @@ import { PhotoStylePicker } from '@/components/PhotoStylePicker';
 import { CaptionFontPicker } from '@/components/CaptionFontPicker';
 import { captureViewAsBase64 } from '@/lib/media';
 import { useLocationPickerStore } from '@/store/locationPicker';
+import { useSpotCameraStore, type CapturedPhoto } from '@/store/spotCamera';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
 
 const CORE_GENRES = ['Street', 'Landscape', 'Portrait', 'Astro', 'Wildlife', 'Architecture', 'Travel'];
@@ -30,12 +31,15 @@ export default function AddSpot() {
   const { session } = useAuth();
   const picked = useLocationPickerStore((s) => s.picked);
   const setPicked = useLocationPickerStore((s) => s.setPicked);
+  const captured = useSpotCameraStore((s) => s.captured);
+  const setCaptured = useSpotCameraStore((s) => s.setCaptured);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [bestTime, setBestTime] = useState('');
   const [genre, setGenre] = useState<string | null>(null);
   const [image, setImage] = useState<{ uri: string; base64: string } | null>(null);
+  const [captureGeoData, setCaptureGeoData] = useState<CapturedPhoto | null>(null);
   const [photoStyle, setPhotoStyle] = useState<PhotoStyleKey>('none');
   const [styleCaption, setStyleCaption] = useState('');
   const [styleCaptionFont, setStyleCaptionFont] = useState<CaptionFontKey>('displayItalic');
@@ -59,6 +63,16 @@ export default function AddSpot() {
         setPicked(null);
       }
     }, [picked])
+  );
+
+  useFocusEffect(
+    useCallbackSafe(() => {
+      if (captured) {
+        setImage({ uri: captured.uri, base64: captured.base64 });
+        setCaptureGeoData(captured);
+        setCaptured(null);
+      }
+    }, [captured])
   );
 
   async function pickImage(source: 'camera' | 'library') {
@@ -187,6 +201,12 @@ export default function AddSpot() {
         time_of_day: timeOfDay,
         photo_url: publicUrlData.publicUrl,
         styled_photo_url: styledPhotoUrl,
+        capture_lat: captureGeoData?.lat ?? null,
+        capture_lng: captureGeoData?.lng ?? null,
+        capture_altitude: captureGeoData?.altitude ?? null,
+        captured_at: captureGeoData?.capturedAt ?? null,
+        weather_temp_c: captureGeoData?.weatherTempC ?? null,
+        weather_condition: captureGeoData?.weatherCondition ?? null,
         location: `SRID=4326;POINT(${resolvedLocation.lng} ${resolvedLocation.lat})`,
         location_label: resolvedLocation.label,
         created_by: session.user.id,
@@ -219,11 +239,11 @@ export default function AddSpot() {
           <Image source={{ uri: image.uri }} style={styles.preview} />
         ) : (
           <View style={styles.photoButtons}>
-            <Pressable style={styles.photoBtn} onPress={() => pickImage('camera')}><Text style={styles.photoBtnText}>Camera</Text></Pressable>
+            <Pressable style={styles.photoBtn} onPress={() => router.push('/spot-camera')}><Text style={styles.photoBtnText}>Camera</Text></Pressable>
             <Pressable style={styles.photoBtn} onPress={() => pickImage('library')}><Text style={styles.photoBtnText}>Library</Text></Pressable>
           </View>
         )}
-        {image && <Pressable onPress={() => setImage(null)}><Text style={styles.retake}>Choose a different photo</Text></Pressable>}
+        {image && <Pressable onPress={() => { setImage(null); setCaptureGeoData(null); }}><Text style={styles.retake}>Choose a different photo</Text></Pressable>}
 
         {image && (
           <>

@@ -8,6 +8,10 @@ module.exports = ({ config }) => ({
       'expo-location',
       { locationWhenInUsePermission: 'Wanderlens uses your location to show nearby photo spots.' },
     ],
+    [
+      'expo-camera',
+      { cameraPermission: 'Allow Wanderlens to access your camera to capture geo-tagged spot photos.' },
+    ],
     'expo-video',
     [
       'expo-audio',

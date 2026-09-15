@@ -28,6 +28,7 @@
     "base64-arraybuffer": "^1.0.2",
     "expo": "~54.0.37",
     "expo-audio": "~1.1.1",
+    "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.14",
     "expo-dev-client": "~6.0.21",
     "expo-document-picker": "~14.0.8",
