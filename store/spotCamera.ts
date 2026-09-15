@@ -7,6 +7,7 @@ export type CapturedPhoto = {
   lng: number | null;
   altitude: number | null;
   capturedAt: string;
+  placeName: string | null;
   weatherTempC: number | null;
   weatherCondition: string | null;
 };

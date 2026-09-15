@@ -7,9 +7,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { getCurrentWeather } from '@/lib/weather';
+import { reverseGeocode } from '@/lib/geocoding';
 import { useSpotCameraStore, type CapturedPhoto } from '@/store/spotCamera';
 
-type GeoData = { lat: number | null; lng: number | null; altitude: number | null; weatherTempC: number | null; weatherCondition: string | null };
+type GeoData = { lat: number | null; lng: number | null; altitude: number | null; placeName: string | null; weatherTempC: number | null; weatherCondition: string | null };
 
 export default function SpotCamera() {
   const router = useRouter();
@@ -61,11 +62,13 @@ export default function SpotCamera() {
 
     let weatherTempC: number | null = null;
     let weatherCondition: string | null = null;
+    let placeName: string | null = null;
     if (lat !== null && lng !== null) {
-      const weather = await getCurrentWeather(lat, lng);
+      const [weather, name] = await Promise.all([getCurrentWeather(lat, lng), reverseGeocode(lat, lng)]);
       if (weather) { weatherTempC = weather.tempC; weatherCondition = weather.condition; }
+      placeName = name;
     }
-    setGeo({ lat, lng, altitude, weatherTempC, weatherCondition });
+    setGeo({ lat, lng, altitude, placeName, weatherTempC, weatherCondition });
     setLocating(false);
   }
 
@@ -83,6 +86,7 @@ export default function SpotCamera() {
       lng: geo?.lng ?? null,
       altitude: geo?.altitude ?? null,
       capturedAt: photo.capturedAt,
+      placeName: geo?.placeName ?? null,
       weatherTempC: geo?.weatherTempC ?? null,
       weatherCondition: geo?.weatherCondition ?? null,
     };
@@ -111,7 +115,9 @@ export default function SpotCamera() {
 
   if (photo) {
     const summaryParts: string[] = [];
-    if (geo?.lat !== null && geo?.lat !== undefined && geo?.lng !== null && geo?.lng !== undefined) {
+    if (geo?.placeName) {
+      summaryParts.push(`📍 ${geo.placeName}`);
+    } else if (geo?.lat !== null && geo?.lat !== undefined && geo?.lng !== null && geo?.lng !== undefined) {
       summaryParts.push(`📍 ${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}`);
     }
     if (geo?.altitude !== null && geo?.altitude !== undefined) summaryParts.push(`${Math.round(geo.altitude)}m`);
@@ -130,7 +136,7 @@ export default function SpotCamera() {
               <Text style={styles.geoText}>Detecting location & weather…</Text>
             </View>
           ) : summaryParts.length > 0 ? (
-            <Text style={styles.geoText}>{summaryParts.join(' · ')}</Text>
+            <Text style={styles.geoText} numberOfLines={2}>{summaryParts.join(' · ')}</Text>
           ) : (
             <Text style={styles.geoText}>No location data captured</Text>
           )}

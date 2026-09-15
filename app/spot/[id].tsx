@@ -49,6 +49,7 @@ export default function SpotDetail() {
   const [geoTag, setGeoTag] = useState<{
     capture_lat: number | null; capture_lng: number | null; capture_altitude: number | null;
     captured_at: string | null; weather_temp_c: number | null; weather_condition: string | null;
+    capture_place_name: string | null;
   } | null>(null);
   const [commentActionTarget, setCommentActionTarget] = useState<CommentRow | null>(null);
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
@@ -62,7 +63,7 @@ export default function SpotDetail() {
     const [{ data: spotData }, { data: extraRow }] = await Promise.all([
       supabase.rpc('get_spot', { spot_id: id }).single(),
       supabase.from('spots')
-        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition')
+        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name')
         .eq('id', id).maybeSingle(),
     ]);
     setSpot(spotData as SpotDetail);
@@ -228,7 +229,7 @@ export default function SpotDetail() {
           <Text style={styles.timeAgo}>{formatTimeAgo(spot.created_at)}</Text>
           {geoTag?.capture_lat != null && geoTag?.capture_lng != null && (
             <Text style={styles.geoTagText}>
-              📍 Captured live · {geoTag.capture_lat.toFixed(4)}, {geoTag.capture_lng.toFixed(4)}
+              📍 Captured live · {geoTag.capture_place_name || `${geoTag.capture_lat.toFixed(4)}, ${geoTag.capture_lng.toFixed(4)}`}
               {geoTag.capture_altitude != null ? ` · ${Math.round(geoTag.capture_altitude)}m` : ''}
               {geoTag.weather_temp_c != null ? ` · ${Math.round(geoTag.weather_temp_c)}°C${geoTag.weather_condition ? `, ${geoTag.weather_condition}` : ''}` : ''}
             </Text>
