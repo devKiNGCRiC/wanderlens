@@ -62,7 +62,7 @@ export default function GroupInfoScreen() {
     setLoadError(false);
     const [infoRes, memberRes, photosRes, spotsRes, flagsRes] = await Promise.all([
       supabase.rpc('get_conversation_info', { p_conversation_id: id }).maybeSingle(),
-      supabase.from('conversation_members').select('user_id, role, profiles:user_id(username, full_name, avatar_url)').eq('conversation_id', id),
+      supabase.from('conversation_members').select('user_id, role, profiles:user_id(username, full_name, avatar_url)').eq('conversation_id', id).neq('status', 'left'),
       supabase.rpc('get_group_shared_photos', { p_conversation_id: id, p_limit: PHOTO_PREVIEW_LIMIT }),
       supabase.rpc('get_group_shared_spots', { p_conversation_id: id }),
       supabase.from('conversation_members').select('is_pinned, is_muted, is_favorite').eq('conversation_id', id).eq('user_id', myUserId).maybeSingle(),
