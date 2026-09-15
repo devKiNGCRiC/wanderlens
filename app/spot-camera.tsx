@@ -54,7 +54,15 @@ export default function SpotCamera() {
         const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         lat = pos.coords.latitude;
         lng = pos.coords.longitude;
-        altitude = pos.coords.altitude ?? null;
+        // GPS altitude is far noisier than lat/lng, and phone GPS chips
+        // report it far less reliably — only trust it when the device's own
+        // altitudeAccuracy says the error margin is reasonably tight.
+        // Otherwise a wildly-off reading (e.g. negative at street level) is
+        // worse than just not showing one.
+        const ALTITUDE_ACCURACY_THRESHOLD_M = 20;
+        if (pos.coords.altitudeAccuracy != null && pos.coords.altitudeAccuracy <= ALTITUDE_ACCURACY_THRESHOLD_M) {
+          altitude = pos.coords.altitude ?? null;
+        }
       }
     } catch {
       // GPS unavailable — geo fields stay null, capture still succeeds.
@@ -115,11 +123,9 @@ export default function SpotCamera() {
 
   if (photo) {
     const summaryParts: string[] = [];
-    if (geo?.placeName) {
-      summaryParts.push(`📍 ${geo.placeName}`);
-    } else if (geo?.lat !== null && geo?.lat !== undefined && geo?.lng !== null && geo?.lng !== undefined) {
-      summaryParts.push(`📍 ${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}`);
-    }
+    const hasCoords = geo?.lat !== null && geo?.lat !== undefined && geo?.lng !== null && geo?.lng !== undefined;
+    if (geo?.placeName) summaryParts.push(`📍 ${geo.placeName}`);
+    if (hasCoords) summaryParts.push(`${geo!.lat!.toFixed(4)}, ${geo!.lng!.toFixed(4)}`);
     if (geo?.altitude !== null && geo?.altitude !== undefined) summaryParts.push(`${Math.round(geo.altitude)}m`);
     if (geo?.weatherTempC !== null && geo?.weatherTempC !== undefined) {
       summaryParts.push(`${Math.round(geo.weatherTempC)}°C${geo.weatherCondition ? `, ${geo.weatherCondition}` : ''}`);

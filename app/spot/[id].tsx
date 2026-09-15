@@ -229,7 +229,7 @@ export default function SpotDetail() {
           <Text style={styles.timeAgo}>{formatTimeAgo(spot.created_at)}</Text>
           {geoTag?.capture_lat != null && geoTag?.capture_lng != null && (
             <Text style={styles.geoTagText}>
-              📍 Captured live · {geoTag.capture_place_name || `${geoTag.capture_lat.toFixed(4)}, ${geoTag.capture_lng.toFixed(4)}`}
+              📍 Captured live · {geoTag.capture_place_name ? `${geoTag.capture_place_name} · ` : ''}{geoTag.capture_lat.toFixed(4)}, {geoTag.capture_lng.toFixed(4)}
               {geoTag.capture_altitude != null ? ` · ${Math.round(geoTag.capture_altitude)}m` : ''}
               {geoTag.weather_temp_c != null ? ` · ${Math.round(geoTag.weather_temp_c)}°C${geoTag.weather_condition ? `, ${geoTag.weather_condition}` : ''}` : ''}
             </Text>
