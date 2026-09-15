@@ -31,7 +31,7 @@ re-proposing the feature as new:
 | Public/private account toggle | Not a flag — every read policy on `spots`/`profiles`/eventually `messages` would need connection-status-aware RLS |
 | Stories + highlights | Comparable in scope to everything built so far combined |
 | OTP-based signup | Real hardening, needs custom email templates + deep-link handling |
-| Forgot-password flow | Supabase supports it; screen + deep-link handling not built |
+| ~~Forgot-password flow~~ | Done — see "The actual checklist" §5 below |
 | Live golden-hour countdown | Feed hero's "GOLDEN HOUR · SOON" is static copy; a free sunrise/sunset API would make it live |
 | Map pin rendering rewrite | Current `ViewAnnotation` approach has a known async-image snapshot-timing quirk. Mitigated today by pre-fetching images before render — works, not fully robust. A `ShapeSource` + `SymbolLayer` rewrite is the complete fix |
 | Activity tracker feed | Considered, dropped — low value for a capstone demo |
@@ -83,13 +83,18 @@ Play Store / App Store. In rough priority order:
 5. **Store compliance** — privacy policy and data-safety declarations still
    needed (both require the user's own factual input, not something to draft
    speculatively). ~~Account deletion~~ — done:
-   `supabase/functions/delete-account`, wired up from a "Danger zone" in
-   `app/edit-profile.tsx`. Anonymizes `profiles` in place (spots/messages
-   stay attributed to "Deleted user," per the product decision that
-   crowdsourced spots have value beyond their contributor) and soft-deletes
-   the `auth.users` row via `auth.admin.deleteUser(id, true)` — the first
-   service-role-key usage in this project, worth an extra review pass before
-   it ships.
+   `supabase/functions/delete-account`, wired up from the profile tab's
+   hamburger menu (`app/(tabs)/profile.tsx`). Anonymizes `profiles` in place
+   (spots/messages stay attributed to "Deleted user," per the product
+   decision that crowdsourced spots have value beyond their contributor) and
+   soft-deletes the `auth.users` row via `auth.admin.deleteUser(id, true)` —
+   the first service-role-key usage in this project, security-reviewed
+   before shipping. ~~Forgot-password flow~~ — done too (see "Deferred for
+   later" below, which now reflects this): `app/(auth)/forgot-password.tsx`
+   + `app/reset-password.tsx`, using a recovery-mode flag in
+   `context/AuthProvider.tsx` kept independent of normal session state so a
+   recovery-link tap can't get silently routed straight into the app before
+   the user sets a new password.
 6. Everything else in "Deferred for later" above, roughly in the order that
    matches user value once the above is solid.
 
