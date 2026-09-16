@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { CameraView, useCameraPermissions, type CameraType, type FlashMode } from 'expo-camera';
 import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { getCurrentWeather } from '@/lib/weather';
 import { reverseGeocode } from '@/lib/geocoding';
+import { saveViewAsImage } from '@/lib/media';
 import { useSpotCameraStore, type CapturedPhoto } from '@/store/spotCamera';
 
 type GeoData = { lat: number | null; lng: number | null; altitude: number | null; placeName: string | null; weatherTempC: number | null; weatherCondition: string | null };
@@ -17,6 +18,7 @@ export default function SpotCamera() {
   const insets = useSafeAreaInsets();
   const setCaptured = useSpotCameraStore((s) => s.setCaptured);
   const cameraRef = useRef<CameraView>(null);
+  const stampRef = useRef<View>(null);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
@@ -25,6 +27,7 @@ export default function SpotCamera() {
   const [photo, setPhoto] = useState<{ uri: string; base64: string; capturedAt: string } | null>(null);
   const [geo, setGeo] = useState<GeoData | null>(null);
   const [locating, setLocating] = useState(false);
+  const [savingToGallery, setSavingToGallery] = useState(false);
 
   async function handleCapture() {
     if (!cameraRef.current || capturing) return;
@@ -85,6 +88,18 @@ export default function SpotCamera() {
     setGeo(null);
   }
 
+  async function handleSaveToGallery() {
+    setSavingToGallery(true);
+    try {
+      const ok = await saveViewAsImage(stampRef);
+      Alert.alert(ok ? 'Saved' : 'Permission needed', ok ? 'Geo-tagged photo saved to your gallery.' : 'Allow photo access to save images.');
+    } catch {
+      Alert.alert('Could not save', 'Something went wrong saving this photo.');
+    } finally {
+      setSavingToGallery(false);
+    }
+  }
+
   function usePhoto() {
     if (!photo) return;
     const captured: CapturedPhoto = {
@@ -134,28 +149,37 @@ export default function SpotCamera() {
     return (
       <View style={styles.root}>
         <Stack.Screen options={{ headerShown: false }} />
-        <Image source={{ uri: photo.uri }} style={styles.reviewImage} />
-        <View style={[styles.reviewOverlay, { paddingBottom: insets.bottom + 20 }]}>
-          {locating ? (
-            <View style={styles.geoRow}>
-              <ActivityIndicator color={theme.color.gold} size="small" />
-              <Text style={styles.geoText}>Detecting location & weather…</Text>
-            </View>
-          ) : summaryParts.length > 0 ? (
-            <Text style={styles.geoText} numberOfLines={2}>{summaryParts.join(' · ')}</Text>
-          ) : (
-            <Text style={styles.geoText}>No location data captured</Text>
-          )}
-          <View style={styles.reviewActions}>
-            <Pressable style={styles.retakeBtn} onPress={retake}>
-              <Ionicons name="refresh" size={18} color={theme.color.cream} />
-              <Text style={styles.retakeBtnText}>Retake</Text>
-            </Pressable>
-            <Pressable style={styles.useBtn} onPress={usePhoto}>
-              <Ionicons name="checkmark" size={18} color={theme.color.dusk} />
-              <Text style={styles.useBtnText}>Use photo</Text>
-            </Pressable>
+        {/* Everything inside stampRef is what gets saved to the gallery —
+            the geo-card is baked into the image itself, like a market
+            geo-tag camera app. The action buttons below are deliberately
+            siblings, not children, so they're never part of the saved file. */}
+        <View ref={stampRef} collapsable={false} style={styles.stampWrap}>
+          <Image source={{ uri: photo.uri }} style={styles.reviewImage} />
+          <View style={styles.geoCard}>
+            {locating ? (
+              <View style={styles.geoRow}>
+                <ActivityIndicator color={theme.color.gold} size="small" />
+                <Text style={styles.geoText}>Detecting location & weather…</Text>
+              </View>
+            ) : summaryParts.length > 0 ? (
+              <Text style={styles.geoText} numberOfLines={2}>{summaryParts.join(' · ')}</Text>
+            ) : (
+              <Text style={styles.geoText}>No location data captured</Text>
+            )}
           </View>
+        </View>
+        <View style={[styles.reviewActions, { paddingBottom: insets.bottom + 20 }]}>
+          <Pressable style={styles.retakeBtn} onPress={retake}>
+            <Ionicons name="refresh" size={18} color={theme.color.cream} />
+            <Text style={styles.retakeBtnText}>Retake</Text>
+          </Pressable>
+          <Pressable style={styles.saveGalleryBtn} onPress={handleSaveToGallery} disabled={locating || savingToGallery} accessibilityLabel="Save to gallery">
+            {savingToGallery ? <ActivityIndicator color={theme.color.gold} size="small" /> : <Ionicons name="download-outline" size={18} color={theme.color.gold} />}
+          </Pressable>
+          <Pressable style={styles.useBtn} onPress={usePhoto}>
+            <Ionicons name="checkmark" size={18} color={theme.color.dusk} />
+            <Text style={styles.useBtnText}>Use photo</Text>
+          </Pressable>
         </View>
       </View>
     );
@@ -199,13 +223,15 @@ const styles = StyleSheet.create({
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 32 },
   shutterBtn: { width: 74, height: 74, borderRadius: 37, backgroundColor: 'rgba(255,255,255,0.15)', borderWidth: 3, borderColor: theme.color.cream, alignItems: 'center', justifyContent: 'center' },
   shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: theme.color.cream },
+  stampWrap: { flex: 1 },
   reviewImage: { flex: 1, width: '100%' },
-  reviewOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(20,23,31,0.85)', padding: 20 },
+  geoCard: { backgroundColor: 'rgba(20,23,31,0.85)', padding: 20 },
   geoRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   geoText: { fontFamily: theme.font.mono, fontSize: 12.5, color: theme.color.cream },
-  reviewActions: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  reviewActions: { flexDirection: 'row', gap: 12, padding: 20, paddingTop: 16, backgroundColor: theme.color.dusk },
   retakeBtn: { flex: 1, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, paddingVertical: 14 },
   retakeBtnText: { color: theme.color.cream, fontFamily: theme.font.body, fontSize: 14 },
+  saveGalleryBtn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.color.gold, borderRadius: theme.radius.md },
   useBtn: { flex: 1, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 14 },
   useBtnText: { color: theme.color.dusk, fontFamily: theme.font.body, fontSize: 14 },
 });
