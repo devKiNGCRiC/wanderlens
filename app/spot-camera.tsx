@@ -253,7 +253,7 @@ export default function SpotCamera() {
             <LinearGradient
               colors={['transparent', 'rgba(20,23,31,0.55)', 'rgba(20,23,31,0.95)']}
               locations={[0, 0.55, 1]}
-              style={[styles.cardScrim, { height: exportHeight * 0.34 }]}
+              style={[styles.cardScrim, { height: exportHeight * 0.42 }]}
             />
             <View style={styles.cardContent}>
               <View style={styles.cardTopRow}>
@@ -278,18 +278,21 @@ export default function SpotCamera() {
                     <Text style={styles.cardBrand}>WANDERLENS</Text>
                   </View>
                   <Text style={styles.cardPlace} numberOfLines={2}>{headline}</Text>
-                  {geo?.address && <Text style={styles.cardAddress} numberOfLines={3}>{geo.address}</Text>}
+                  {geo?.address && <Text style={styles.cardAddress} numberOfLines={2}>{geo.address}</Text>}
+                  <View style={styles.cardDivider} />
+                  <Text style={styles.cardMeta} numberOfLines={1}>
+                    {hasCoords ? `${formatDMS(geo!.lat!, 'lat')}  ${formatDMS(geo!.lng!, 'lng')}` : 'No GPS fix'}
+                  </Text>
+                  {(geo?.altitude != null || geo?.weatherTempC != null) && (
+                    <Text style={styles.cardMeta} numberOfLines={1}>
+                      {geo?.altitude != null ? `ALT ${Math.round(geo.altitude)}m` : ''}
+                      {geo?.altitude != null && geo?.weatherTempC != null ? '  ·  ' : ''}
+                      {geo?.weatherTempC != null ? `${Math.round(geo.weatherTempC)}°C${geo.weatherCondition ? ` ${geo.weatherCondition}` : ''}` : ''}
+                    </Text>
+                  )}
+                  <Text style={styles.cardMetaSmall} numberOfLines={1}>{new Date(photo.capturedAt).toLocaleString()}</Text>
                 </View>
               </View>
-              <View style={styles.cardDivider} />
-              <Text style={styles.cardMeta} numberOfLines={1}>
-                {hasCoords ? `${formatDMS(geo!.lat!, 'lat')}  ${formatDMS(geo!.lng!, 'lng')}` : 'No GPS fix'}
-                {geo?.altitude != null ? `  ·  ALT ${Math.round(geo.altitude)}m` : ''}
-              </Text>
-              <Text style={styles.cardMeta} numberOfLines={1}>
-                {new Date(photo.capturedAt).toLocaleString()}
-                {geo?.weatherTempC != null ? `  ·  ${Math.round(geo.weatherTempC)}°C${geo.weatherCondition ? ` ${geo.weatherCondition}` : ''}` : ''}
-              </Text>
             </View>
           </View>
         </View>
@@ -366,11 +369,12 @@ const styles = StyleSheet.create({
   miniMapFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   miniMapPin: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   miniMapBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 14, borderWidth: 3, borderColor: theme.color.gold },
-  cardTextCol: { flex: 1, marginLeft: 20, justifyContent: 'center' },
+  cardTextCol: { flex: 1, marginLeft: 20 },
   cardBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   cardBrand: { fontFamily: theme.font.mono, fontSize: 15, letterSpacing: 3, color: theme.color.gold },
   cardPlace: { fontFamily: theme.font.display, fontSize: 34, color: theme.color.cream },
   cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 16, color: theme.color.cream, opacity: 0.75, marginTop: 6 },
-  cardDivider: { height: 2, width: 64, backgroundColor: theme.color.gold, marginTop: 16, marginBottom: 14 },
-  cardMeta: { fontFamily: theme.font.mono, fontSize: 20, color: theme.color.cream, opacity: 0.9, marginTop: 4 },
+  cardDivider: { height: 2, width: 48, backgroundColor: theme.color.gold, marginTop: 12, marginBottom: 10 },
+  cardMeta: { fontFamily: theme.font.mono, fontSize: 17, color: theme.color.cream, opacity: 0.9, marginTop: 4 },
+  cardMetaSmall: { fontFamily: theme.font.mono, fontSize: 14, color: theme.color.cream, opacity: 0.6, marginTop: 6 },
 });
