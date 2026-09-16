@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
+import { ActionSheet } from '@/components/ActionSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 
 type Note = {
@@ -15,6 +16,7 @@ type Note = {
   body: string;
   spot_id: string | null;
   created_at: string;
+  updated_at: string;
   spots: { title: string; photo_url: string | null } | null;
 };
 
@@ -24,6 +26,7 @@ export default function Notes() {
   const { session } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionTarget, setActionTarget] = useState<Note | null>(null);
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -31,7 +34,7 @@ export default function Notes() {
       setLoading(true);
       const { data } = await supabase
         .from('notes')
-        .select('id, title, body, spot_id, created_at, spots(title, photo_url)')
+        .select('id, title, body, spot_id, created_at, updated_at, spots(title, photo_url)')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false });
       setNotes((data as unknown as Note[]) ?? []);
@@ -69,29 +72,47 @@ export default function Notes() {
         data={notes}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 20, paddingBottom: 60 }}
-        renderItem={({ item }) => (
-          <Pressable style={styles.noteCard} onPress={() => router.push({ pathname: '/note-editor', params: { id: item.id } })}>
-            <View style={styles.noteHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.noteTitle} numberOfLines={1}>{item.title}</Text>
-                {!!item.body && <Text style={styles.noteBody} numberOfLines={2}>{item.body}</Text>}
-              </View>
-              <Pressable onPress={() => handleDelete(item.id)} style={styles.deleteIconBtn} accessibilityLabel="Delete note" hitSlop={9}>
-                <Ionicons name="trash-outline" size={16} color={theme.color.ember} />
-              </Pressable>
-            </View>
-            <View style={styles.noteFooter}>
-              {item.spots && (
-                <View style={styles.spotBadge}>
-                  {item.spots.photo_url && <Image source={{ uri: item.spots.photo_url }} style={styles.spotBadgeImage} />}
-                  <Text style={styles.spotBadgeText} numberOfLines={1}>{item.spots.title}</Text>
+        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        renderItem={({ item }) => {
+          const edited = item.updated_at !== item.created_at;
+          return (
+            <Pressable
+              style={({ pressed }) => [styles.noteCard, pressed && styles.noteCardPressed]}
+              onPress={() => router.push({ pathname: '/note-editor', params: { id: item.id } })}
+              onLongPress={() => setActionTarget(item)}
+              delayLongPress={250}
+            >
+              <View style={styles.noteHeader}>
+                <View style={styles.noteIcon}>
+                  <Ionicons name="document-text-outline" size={15} color={theme.color.gold} />
                 </View>
-              )}
-              <Text style={styles.noteTime}>{formatTimeAgo(item.created_at)}</Text>
-            </View>
-          </Pressable>
-        )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.noteTitle} numberOfLines={1}>{item.title}</Text>
+                  {!!item.body && <Text style={styles.noteBody} numberOfLines={2}>{item.body}</Text>}
+                </View>
+              </View>
+              <View style={styles.noteFooter}>
+                {item.spots ? (
+                  <View style={styles.spotBadge}>
+                    {item.spots.photo_url && <Image source={{ uri: item.spots.photo_url }} style={styles.spotBadgeImage} />}
+                    <Text style={styles.spotBadgeText} numberOfLines={1}>{item.spots.title}</Text>
+                  </View>
+                ) : <View />}
+                <Text style={styles.noteTime}>{edited ? 'Edited ' : ''}{formatTimeAgo(edited ? item.updated_at : item.created_at)}</Text>
+              </View>
+            </Pressable>
+          );
+        }}
         ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No notes yet — jot down your next destination list, camera settings, or anything else worth remembering.</Text> : null}
+      />
+
+      <ActionSheet
+        visible={!!actionTarget}
+        onClose={() => setActionTarget(null)}
+        title={actionTarget?.title}
+        options={[
+          { key: 'delete', label: 'Delete note', icon: 'trash-outline', destructive: true, onPress: () => actionTarget && handleDelete(actionTarget.id) },
+        ]}
       />
     </ScreenBackground>
   );
@@ -102,15 +123,16 @@ const styles = StyleSheet.create({
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.color.surface, alignItems: 'center', justifyContent: 'center' },
   heading: { fontFamily: theme.font.display, fontSize: 17, color: theme.color.cream },
   addBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
-  noteCard: { backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, padding: 14, marginBottom: 12 },
+  noteCard: { backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, padding: 14 },
+  noteCardPressed: { opacity: 0.7 },
   noteHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  noteTitle: { fontFamily: theme.font.body, fontSize: 15, color: theme.color.cream },
-  noteBody: { fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.muted, marginTop: 4, lineHeight: 17 },
-  deleteIconBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  noteFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
+  noteIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: theme.color.goldTint, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  noteTitle: { fontFamily: theme.font.body, fontSize: 15.5, color: theme.color.cream },
+  noteBody: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, marginTop: 4, lineHeight: 18 },
+  noteFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 },
   spotBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.color.mediaCasing, borderRadius: 14, paddingVertical: 4, paddingHorizontal: 8, flexShrink: 1 },
   spotBadgeImage: { width: 18, height: 18, borderRadius: 4 },
   spotBadgeText: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.gold, flexShrink: 1 },
-  noteTime: { fontFamily: theme.font.mono, fontSize: 9, color: theme.color.muted },
+  noteTime: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 40, lineHeight: 19 },
 });
