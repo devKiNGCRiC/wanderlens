@@ -19,7 +19,11 @@ type Photo = { uri: string; base64: string; width: number; height: number; captu
 // — the mini-map on the geo-tag card should look like the same map, and it
 // costs no API key/billing either way.
 const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
-const MINI_MAP_SIZE = 200;
+// Rectangular, not square — widening the map (not its height) absorbs more
+// of the row's width without growing the card taller, which a square map
+// can't do on its own.
+const MINI_MAP_WIDTH = 270;
+const MINI_MAP_HEIGHT = 200;
 // Card spans (EXPORT_WIDTH - 2*CARD_MARGIN) / EXPORT_WIDTH of the image —
 // 1080 - 2*52 = 976, ~90% — inside the requested 88-96% range.
 const CARD_MARGIN = 52;
@@ -105,8 +109,8 @@ export default function SpotCamera() {
           center: [lng, lat],
           zoom: 15,
           mapStyle: OPENFREEMAP_STYLE,
-          width: MINI_MAP_SIZE,
-          height: MINI_MAP_SIZE,
+          width: MINI_MAP_WIDTH,
+          height: MINI_MAP_HEIGHT,
           output: 'base64',
           logo: false,
         }).catch(() => null), // best-effort, same as weather/reverse-geocode
@@ -365,16 +369,16 @@ const styles = StyleSheet.create({
   geoCardWrap: { position: 'absolute', left: CARD_MARGIN, right: CARD_MARGIN, bottom: CARD_MARGIN },
   geoCard: { backgroundColor: 'rgba(20,23,31,0.94)', borderRadius: 28, borderWidth: 1, borderColor: 'rgba(232,166,76,0.35)', padding: CARD_PADDING },
   cardTopRow: { flexDirection: 'row', alignItems: 'center' },
-  miniMap: { width: MINI_MAP_SIZE, height: MINI_MAP_SIZE, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.color.surface2 },
+  miniMap: { width: MINI_MAP_WIDTH, height: MINI_MAP_HEIGHT, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.color.surface2 },
   miniMapFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   miniMapPin: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   miniMapBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 16, borderWidth: 3, borderColor: theme.color.gold },
   cardTextCol: { flex: 1, marginLeft: 18, justifyContent: 'center' },
   cardBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  cardBrand: { fontFamily: theme.font.mono, fontSize: 15, letterSpacing: 3, color: theme.color.gold },
-  cardPlace: { fontFamily: theme.font.display, fontSize: 30, color: theme.color.cream, lineHeight: 34 },
-  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 15, color: theme.color.cream, opacity: 0.75, marginTop: 4, lineHeight: 19 },
+  cardBrand: { fontFamily: theme.font.mono, fontSize: 16, letterSpacing: 3, color: theme.color.gold },
+  cardPlace: { fontFamily: theme.font.display, fontSize: 34, color: theme.color.cream, lineHeight: 38 },
+  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 17, color: theme.color.cream, opacity: 0.75, marginTop: 5, lineHeight: 22 },
   cardDivider: { height: 2, width: 44, backgroundColor: theme.color.gold, marginTop: 10, marginBottom: 8 },
-  cardMeta: { fontFamily: theme.font.mono, fontSize: 16, color: theme.color.cream, opacity: 0.9, marginTop: 4 },
-  cardMetaSmall: { fontFamily: theme.font.mono, fontSize: 13, color: theme.color.cream, opacity: 0.6, marginTop: 6 },
+  cardMeta: { fontFamily: theme.font.mono, fontSize: 18, color: theme.color.cream, opacity: 0.9, marginTop: 4 },
+  cardMetaSmall: { fontFamily: theme.font.mono, fontSize: 14, color: theme.color.cream, opacity: 0.6, marginTop: 6 },
 });
