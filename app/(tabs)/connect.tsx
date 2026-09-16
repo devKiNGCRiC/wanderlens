@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { View, Text, Image, Pressable, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, Image, Pressable, FlatList, StyleSheet, Alert } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { formatUserType } from '@/lib/formatUserType';
 import { excludeDeletedProfiles } from '@/lib/profiles';
+import { PersonCardSkeletonList } from '@/components/skeletons/PersonCardSkeleton';
 
 const SEGMENTS = ['Discover', 'Trip', 'Requests', 'Connections'] as const;
 type Segment = typeof SEGMENTS[number];
@@ -206,7 +207,7 @@ export default function ConnectScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator color={theme.color.gold} style={{ marginTop: 40 }} />
+        <View style={{ padding: 20 }}><PersonCardSkeletonList /></View>
       ) : segment === 'Discover' ? (
         <FlatList
           data={people}

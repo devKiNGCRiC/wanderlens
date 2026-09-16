@@ -13,6 +13,7 @@ import { ActionSheet } from '@/components/ActionSheet';
 import { flagEmoji, COUNTRIES } from '@/constants/countries';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
+import { PolaroidGridSkeleton } from '@/components/skeletons/PolaroidGridSkeleton';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type MySpot = { id: string; title: string; photo_url: string | null; genre: string | null };
@@ -171,6 +172,7 @@ export default function ProfileScreen() {
                   <Text style={styles.sectionCount}>{mySpots.length}</Text>
                 </View>
                 <Text style={styles.sectionHint}>Tap to open</Text>
+                {loading && <PolaroidGridSkeleton />}
               </View>
             </View>
           }

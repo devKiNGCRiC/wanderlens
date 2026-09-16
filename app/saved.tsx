@@ -8,6 +8,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
+import { PolaroidGridSkeleton } from '@/components/skeletons/PolaroidGridSkeleton';
 
 type SavedSpot = { id: string; title: string; photo_url: string | null; genre: string | null };
 
@@ -16,12 +17,15 @@ export default function SavedScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const [saved, setSaved] = useState<SavedSpot[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useFocusEffect(useCallback(() => {
     (async () => {
       if (!session) return;
+      setLoading(true);
       const { data } = await supabase.rpc('get_saved_spots', { uid: session.user.id });
       setSaved((data as SavedSpot[]) ?? []);
+      setLoading(false);
     })();
   }, [session]));
 
@@ -43,7 +47,8 @@ export default function SavedScreen() {
         renderItem={({ item, index }) => (
           <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
         )}
-        ListEmptyComponent={<Text style={styles.emptyText}>Nothing saved yet — tap the bookmark icon on any spot to save it here.</Text>}
+        ListHeaderComponent={loading ? <PolaroidGridSkeleton /> : null}
+        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>Nothing saved yet — tap the bookmark icon on any spot to save it here.</Text> : null}
       />
     </ScreenBackground>
   );

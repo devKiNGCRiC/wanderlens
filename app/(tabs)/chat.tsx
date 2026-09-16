@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Pressable, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, Pressable, FlatList, StyleSheet, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -10,6 +10,7 @@ import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
 import { ConversationRow, type ConversationSummary } from '@/components/chat/ConversationRow';
 import { ConversationOptionsSheet, type ConversationAction } from '@/components/chat/ConversationOptionsSheet';
+import { ConversationRowSkeletonList } from '@/components/skeletons/ConversationRowSkeleton';
 
 const SEGMENTS = ['Inbox', 'Requests'] as const;
 type Segment = typeof SEGMENTS[number];
@@ -118,7 +119,7 @@ export default function ChatListScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator color={theme.color.gold} style={{ marginTop: 40 }} />
+        <ConversationRowSkeletonList />
       ) : loadError ? (
         <View style={styles.errorState}>
           <Text style={styles.emptyText}>Couldn&apos;t load your conversations.</Text>

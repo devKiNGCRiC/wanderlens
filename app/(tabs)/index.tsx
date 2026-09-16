@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Image, Pressable, FlatList, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Image, Pressable, FlatList, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,6 +15,7 @@ import { FilterSheet } from '@/components/FilterSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 import { formatUserType } from '@/lib/formatUserType';
 import { excludeDeletedProfiles } from '@/lib/profiles';
+import { FeedPostSkeleton } from '@/components/skeletons/FeedPostSkeleton';
 
 type NearbySpot = { id: string; title: string; best_time: string | null; photo_url: string | null };
 type Photographer = { id: string; username: string | null; full_name: string | null; avatar_url: string | null; user_type: string | null; photography_genres: string[] | null };
@@ -184,7 +185,12 @@ export default function FeedScreen() {
                 </Pressable>
               </View>
             </View>
-            {loading && <ActivityIndicator color={theme.color.gold} style={{ marginTop: 20 }} />}
+            {loading && (
+              <>
+                <FeedPostSkeleton />
+                <FeedPostSkeleton />
+              </>
+            )}
           </View>
         }
         renderItem={({ item }) => {

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { View, Text, Image, Pressable, ScrollView, TextInput, StyleSheet, Alert, ActivityIndicator, Share, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, Image, Pressable, ScrollView, TextInput, StyleSheet, Alert, Share, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,7 @@ import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 import { formatDMS } from '@/lib/geocoding';
+import { SpotDetailSkeleton } from '@/components/skeletons/SpotDetailSkeleton';
 
 type SpotDetail = {
   id: string; title: string; description: string | null; genre: string | null;
@@ -187,7 +188,7 @@ export default function SpotDetail() {
     return (
       <ScreenBackground>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.center}><ActivityIndicator color={theme.color.gold} /></View>
+        <SpotDetailSkeleton />
       </ScreenBackground>
     );
   }
