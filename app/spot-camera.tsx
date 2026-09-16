@@ -3,7 +3,6 @@ import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert, Swi
 import { CameraView, useCameraPermissions, type CameraType, type FlashMode } from 'expo-camera';
 import { StaticMapImageManager } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +19,11 @@ type Photo = { uri: string; base64: string; width: number; height: number; captu
 // — the mini-map on the geo-tag card should look like the same map, and it
 // costs no API key/billing either way.
 const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
-const MINI_MAP_SIZE = 220;
+const MINI_MAP_SIZE = 240;
+// Card spans (EXPORT_WIDTH - 2*CARD_MARGIN) / EXPORT_WIDTH of the image —
+// 1080 - 2*48 = 984, ~91% — inside the requested 88-96% range.
+const CARD_MARGIN = 48;
+const CARD_PADDING = 26;
 
 // Fixed export width for the stamped gallery copy — independent of screen
 // size, so the saved file's quality doesn't depend on the device's own
@@ -250,47 +253,44 @@ export default function SpotCamera() {
             {(['TL', 'TR', 'BL', 'BR'] as const).map((corner) => (
               <View key={corner} style={[styles.corner, styles[`corner${corner}`]]} />
             ))}
-            <LinearGradient
-              colors={['transparent', 'rgba(20,23,31,0.55)', 'rgba(20,23,31,0.95)']}
-              locations={[0, 0.55, 1]}
-              style={[styles.cardScrim, { height: exportHeight * 0.42 }]}
-            />
-            <View style={styles.cardContent}>
-              <View style={styles.cardTopRow}>
-                <View style={styles.miniMap}>
-                  {geo?.mapImageUri ? (
-                    <>
-                      <Image source={{ uri: geo.mapImageUri }} style={StyleSheet.absoluteFill} />
-                      <View style={styles.miniMapPin}>
-                        <Ionicons name="location" size={26} color={theme.color.ember} />
+            <View style={styles.geoCardWrap}>
+              <View style={styles.geoCard}>
+                <View style={styles.cardTopRow}>
+                  <View style={styles.miniMap}>
+                    {geo?.mapImageUri ? (
+                      <>
+                        <Image source={{ uri: geo.mapImageUri }} style={StyleSheet.absoluteFill} />
+                        <View style={styles.miniMapPin}>
+                          <Ionicons name="location" size={26} color={theme.color.ember} />
+                        </View>
+                      </>
+                    ) : (
+                      <View style={styles.miniMapFallback}>
+                        <Ionicons name="map-outline" size={28} color={theme.color.gold} />
                       </View>
-                    </>
-                  ) : (
-                    <View style={styles.miniMapFallback}>
-                      <Ionicons name="map-outline" size={28} color={theme.color.gold} />
-                    </View>
-                  )}
-                  <View style={styles.miniMapBorder} pointerEvents="none" />
-                </View>
-                <View style={styles.cardTextCol}>
-                  <View style={styles.cardBrandRow}>
-                    <Ionicons name="location" size={18} color={theme.color.gold} />
-                    <Text style={styles.cardBrand}>WANDERLENS</Text>
+                    )}
+                    <View style={styles.miniMapBorder} pointerEvents="none" />
                   </View>
-                  <Text style={styles.cardPlace} numberOfLines={2}>{headline}</Text>
-                  {geo?.address && <Text style={styles.cardAddress} numberOfLines={2}>{geo.address}</Text>}
-                  <View style={styles.cardDivider} />
-                  <Text style={styles.cardMeta} numberOfLines={1}>
-                    {hasCoords ? `${formatDMS(geo!.lat!, 'lat')}  ${formatDMS(geo!.lng!, 'lng')}` : 'No GPS fix'}
-                  </Text>
-                  {(geo?.altitude != null || geo?.weatherTempC != null) && (
+                  <View style={styles.cardTextCol}>
+                    <View style={styles.cardBrandRow}>
+                      <Ionicons name="location" size={18} color={theme.color.gold} />
+                      <Text style={styles.cardBrand}>WANDERLENS</Text>
+                    </View>
+                    <Text style={styles.cardPlace} numberOfLines={2}>{headline}</Text>
+                    {geo?.address && <Text style={styles.cardAddress} numberOfLines={2}>{geo.address}</Text>}
+                    <View style={styles.cardDivider} />
                     <Text style={styles.cardMeta} numberOfLines={1}>
-                      {geo?.altitude != null ? `ALT ${Math.round(geo.altitude)}m` : ''}
-                      {geo?.altitude != null && geo?.weatherTempC != null ? '  ·  ' : ''}
-                      {geo?.weatherTempC != null ? `${Math.round(geo.weatherTempC)}°C${geo.weatherCondition ? ` ${geo.weatherCondition}` : ''}` : ''}
+                      {hasCoords ? `${formatDMS(geo!.lat!, 'lat')}  ${formatDMS(geo!.lng!, 'lng')}` : 'No GPS fix'}
                     </Text>
-                  )}
-                  <Text style={styles.cardMetaSmall} numberOfLines={1}>{new Date(photo.capturedAt).toLocaleString()}</Text>
+                    {(geo?.altitude != null || geo?.weatherTempC != null) && (
+                      <Text style={styles.cardMeta} numberOfLines={1}>
+                        {geo?.altitude != null ? `ALT ${Math.round(geo.altitude)}m` : ''}
+                        {geo?.altitude != null && geo?.weatherTempC != null ? '  ·  ' : ''}
+                        {geo?.weatherTempC != null ? `${Math.round(geo.weatherTempC)}°C${geo.weatherCondition ? ` ${geo.weatherCondition}` : ''}` : ''}
+                      </Text>
+                    )}
+                    <Text style={styles.cardMetaSmall} numberOfLines={1}>{new Date(photo.capturedAt).toLocaleString()}</Text>
+                  </View>
                 </View>
               </View>
             </View>
@@ -362,19 +362,19 @@ const styles = StyleSheet.create({
   cornerTR: { top: CORNER_INSET, right: CORNER_INSET, borderTopWidth: 4, borderRightWidth: 4 },
   cornerBL: { bottom: CORNER_INSET, left: CORNER_INSET, borderBottomWidth: 4, borderLeftWidth: 4 },
   cornerBR: { bottom: CORNER_INSET, right: CORNER_INSET, borderBottomWidth: 4, borderRightWidth: 4 },
-  cardScrim: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  cardContent: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 36 },
-  cardTopRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  miniMap: { width: MINI_MAP_SIZE, height: MINI_MAP_SIZE, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.color.surface2 },
+  geoCardWrap: { position: 'absolute', left: CARD_MARGIN, right: CARD_MARGIN, bottom: CARD_MARGIN },
+  geoCard: { backgroundColor: 'rgba(20,23,31,0.94)', borderRadius: 28, borderWidth: 1, borderColor: 'rgba(232,166,76,0.35)', padding: CARD_PADDING },
+  cardTopRow: { flexDirection: 'row', alignItems: 'center' },
+  miniMap: { width: MINI_MAP_SIZE, height: MINI_MAP_SIZE, borderRadius: 16, overflow: 'hidden', backgroundColor: theme.color.surface2 },
   miniMapFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   miniMapPin: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  miniMapBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 14, borderWidth: 3, borderColor: theme.color.gold },
-  cardTextCol: { flex: 1, marginLeft: 20 },
+  miniMapBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 16, borderWidth: 3, borderColor: theme.color.gold },
+  cardTextCol: { flex: 1, marginLeft: 22, justifyContent: 'center' },
   cardBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  cardBrand: { fontFamily: theme.font.mono, fontSize: 15, letterSpacing: 3, color: theme.color.gold },
-  cardPlace: { fontFamily: theme.font.display, fontSize: 34, color: theme.color.cream },
-  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 16, color: theme.color.cream, opacity: 0.75, marginTop: 6 },
-  cardDivider: { height: 2, width: 48, backgroundColor: theme.color.gold, marginTop: 12, marginBottom: 10 },
-  cardMeta: { fontFamily: theme.font.mono, fontSize: 17, color: theme.color.cream, opacity: 0.9, marginTop: 4 },
-  cardMetaSmall: { fontFamily: theme.font.mono, fontSize: 14, color: theme.color.cream, opacity: 0.6, marginTop: 6 },
+  cardBrand: { fontFamily: theme.font.mono, fontSize: 16, letterSpacing: 3, color: theme.color.gold },
+  cardPlace: { fontFamily: theme.font.display, fontSize: 36, color: theme.color.cream },
+  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 17, color: theme.color.cream, opacity: 0.75, marginTop: 6 },
+  cardDivider: { height: 2, width: 48, backgroundColor: theme.color.gold, marginTop: 14, marginBottom: 10 },
+  cardMeta: { fontFamily: theme.font.mono, fontSize: 18, color: theme.color.cream, opacity: 0.9, marginTop: 5 },
+  cardMetaSmall: { fontFamily: theme.font.mono, fontSize: 15, color: theme.color.cream, opacity: 0.6, marginTop: 7 },
 });
