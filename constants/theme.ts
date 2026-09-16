@@ -27,6 +27,11 @@ export const theme = {
     goldenHourWash: 'rgba(232,166,76,0.30)',
     blueHourWash: 'rgba(75,63,114,0.42)',
     noirWash: 'rgba(20,23,31,0.58)',
+    // A light lavender — `duskPurple` is a background/gradient tone, too
+    // dark to read as foreground text on a dark screen. This is the "blue
+    // hour" half of the app's dual identity where legible text is needed
+    // (e.g. the feed hero's live golden/blue-hour label).
+    blueHourLight: '#B7A9E0',
   },
   font: {
     display: 'Fraunces_500Medium',

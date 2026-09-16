@@ -5,6 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserLocation } from '@/hooks/useUserLocation';
+import { useGoldenHour } from '@/hooks/useGoldenHour';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { useNotifications } from '@/context/NotificationsProvider';
@@ -33,9 +34,10 @@ export default function FeedScreen() {
   const router = useRouter();
   const { session, profile } = useAuth();
   const firstName = profile?.username || profile?.full_name?.split(' ')[0] || 'there';
-  const { refresh: refreshLocation } = useUserLocation();
+  const { coords, refresh: refreshLocation } = useUserLocation();
   const { unreadCount } = useNotifications();
   const insets = useSafeAreaInsets();
+  const goldenHourLabel = useGoldenHour(coords?.lat ?? null, coords?.lng ?? null);
 
   const [nearbySpots, setNearbySpots] = useState<NearbySpot[]>([]);
   const [photographers, setPhotographers] = useState<Photographer[]>([]);
@@ -133,7 +135,16 @@ export default function FeedScreen() {
                 <Ionicons name="color-wand-outline" size={20} color={theme.color.cream} />
               </Pressable>
               <View style={styles.heroText}>
-                <Text style={styles.eyebrow}>GOLDEN HOUR · SOON</Text>
+                <View style={styles.eyebrowRow}>
+                  <Ionicons
+                    name={goldenHourLabel?.kind === 'blue' ? 'moon' : 'sunny'}
+                    size={12}
+                    color={goldenHourLabel?.kind === 'blue' ? theme.color.blueHourLight : theme.color.gold}
+                  />
+                  <Text style={[styles.eyebrow, goldenHourLabel?.kind === 'blue' && styles.eyebrowBlue]}>
+                    {goldenHourLabel?.label ?? 'GOLDEN HOUR · BLUE HOUR'}
+                  </Text>
+                </View>
                 <Text style={styles.headline}>Chase the <Text style={styles.headlineBold}>light</Text>,{'\n'}{firstName}.</Text>
                 <Text style={styles.tagline}>{nearbySpots.length} spots nearby are catching it right now.</Text>
               </View>
@@ -255,7 +266,9 @@ const styles = StyleSheet.create({
   bellBadge: { position: 'absolute', top: -2, right: -2, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   bellBadgeText: { fontFamily: theme.font.body, fontSize: 9, color: theme.color.cream },
   heroText: { position: 'absolute', left: 26, right: 26, bottom: 26 },
-  eyebrow: { fontFamily: theme.font.mono, fontSize: 11, letterSpacing: 1, color: theme.color.gold, marginBottom: 8 },
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  eyebrow: { fontFamily: theme.font.mono, fontSize: 11, letterSpacing: 1, color: theme.color.gold },
+  eyebrowBlue: { color: theme.color.blueHourLight },
   headline: { fontFamily: theme.font.displayItalic, fontSize: 30, lineHeight: 34, color: theme.color.cream },
   headlineBold: { fontFamily: theme.font.display },
   tagline: { marginTop: 10, fontSize: 13, color: 'rgba(246,241,231,0.8)', fontFamily: theme.font.bodyRegular },
