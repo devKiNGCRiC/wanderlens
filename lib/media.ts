@@ -25,6 +25,15 @@ export async function saveRemoteMediaToGallery(uri: string, extension: string = 
   return true;
 }
 
+// Saves an already-local file URI directly — no view-shot compositing, so
+// this preserves the file's actual resolution (e.g. a camera capture at its
+// full native size) rather than whatever a screen-sized View renders at.
+export async function saveLocalUriToGallery(uri: string): Promise<boolean> {
+  if (!(await ensurePermission())) return false;
+  await MediaLibrary.saveToLibraryAsync(uri);
+  return true;
+}
+
 export async function saveViewAsImage(viewRef: RefObject<View | null>): Promise<boolean> {
   if (!(await ensurePermission())) return false;
   const uri = await captureRef(viewRef, { format: 'jpg', quality: 0.92 });
