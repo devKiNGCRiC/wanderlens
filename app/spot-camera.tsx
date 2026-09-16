@@ -8,11 +8,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { getCurrentWeather } from '@/lib/weather';
-import { reverseGeocode } from '@/lib/geocoding';
+import { reverseGeocode, formatDMS } from '@/lib/geocoding';
 import { saveViewAsImage, saveLocalUriToGallery } from '@/lib/media';
 import { useSpotCameraStore, type CapturedPhoto } from '@/store/spotCamera';
 
-type GeoData = { lat: number | null; lng: number | null; altitude: number | null; placeName: string | null; weatherTempC: number | null; weatherCondition: string | null };
+type GeoData = { lat: number | null; lng: number | null; altitude: number | null; placeName: string | null; address: string | null; weatherTempC: number | null; weatherCondition: string | null };
 type Photo = { uri: string; base64: string; width: number; height: number; capturedAt: string };
 
 // Fixed export width for the stamped gallery copy — independent of screen
@@ -85,12 +85,14 @@ export default function SpotCamera() {
     let weatherTempC: number | null = null;
     let weatherCondition: string | null = null;
     let placeName: string | null = null;
+    let address: string | null = null;
     if (lat !== null && lng !== null) {
-      const [weather, name] = await Promise.all([getCurrentWeather(lat, lng), reverseGeocode(lat, lng)]);
+      const [weather, place] = await Promise.all([getCurrentWeather(lat, lng), reverseGeocode(lat, lng)]);
       if (weather) { weatherTempC = weather.tempC; weatherCondition = weather.condition; }
-      placeName = name;
+      placeName = place.name;
+      address = place.address;
     }
-    setGeo({ lat, lng, altitude, placeName, weatherTempC, weatherCondition });
+    setGeo({ lat, lng, altitude, placeName, address, weatherTempC, weatherCondition });
     setLocating(false);
   }
 
@@ -125,6 +127,7 @@ export default function SpotCamera() {
       altitude: geo?.altitude ?? null,
       capturedAt: photo.capturedAt,
       placeName: geo?.placeName ?? null,
+      address: geo?.address ?? null,
       weatherTempC: geo?.weatherTempC ?? null,
       weatherCondition: geo?.weatherCondition ?? null,
     };
@@ -154,11 +157,16 @@ export default function SpotCamera() {
   if (photo) {
     const summaryParts: string[] = [];
     const hasCoords = geo?.lat !== null && geo?.lat !== undefined && geo?.lng !== null && geo?.lng !== undefined;
-    if (hasCoords) summaryParts.push(`${geo!.lat!.toFixed(4)}, ${geo!.lng!.toFixed(4)}`);
+    if (hasCoords) summaryParts.push(`${formatDMS(geo!.lat!, 'lat')} ${formatDMS(geo!.lng!, 'lng')}`);
     if (geo?.altitude !== null && geo?.altitude !== undefined) summaryParts.push(`${Math.round(geo.altitude)}m`);
     if (geo?.weatherTempC !== null && geo?.weatherTempC !== undefined) {
       summaryParts.push(`${Math.round(geo.weatherTempC)}°C${geo.weatherCondition ? `, ${geo.weatherCondition}` : ''}`);
     }
+    // Headline preference: a specific named feature, then the first segment
+    // of the full address (still meaningful on its own), then a plain
+    // fallback — never leaves the card saying "Unknown location" when a
+    // real address was actually found.
+    const headline = geo?.placeName || geo?.address?.split(',')[0]?.trim() || 'Unknown location';
     const exportHeight = photo.height > 0 ? EXPORT_WIDTH * (photo.height / photo.width) : EXPORT_WIDTH;
 
     return (
@@ -175,9 +183,9 @@ export default function SpotCamera() {
               <ActivityIndicator color={theme.color.gold} size="small" />
               <Text style={styles.previewInfoText}>Detecting location & weather…</Text>
             </View>
-          ) : summaryParts.length > 0 || geo?.placeName ? (
+          ) : summaryParts.length > 0 || geo?.placeName || geo?.address ? (
             <Text style={styles.previewInfoText} numberOfLines={2}>
-              {geo?.placeName ? `📍 ${geo.placeName}${summaryParts.length ? ' · ' : ''}` : ''}{summaryParts.join(' · ')}
+              📍 {headline}{summaryParts.length ? ' · ' : ''}{summaryParts.join(' · ')}
             </Text>
           ) : (
             <Text style={styles.previewInfoText}>No location data captured</Text>
@@ -231,10 +239,11 @@ export default function SpotCamera() {
                 <Ionicons name="location" size={22} color={theme.color.gold} />
                 <Text style={styles.cardBrand}>WANDERLENS</Text>
               </View>
-              <Text style={styles.cardPlace} numberOfLines={2}>{geo?.placeName || 'Unknown location'}</Text>
+              <Text style={styles.cardPlace} numberOfLines={2}>{headline}</Text>
+              {geo?.address && <Text style={styles.cardAddress} numberOfLines={2}>{geo.address}</Text>}
               <View style={styles.cardDivider} />
               <Text style={styles.cardMeta} numberOfLines={1}>
-                {hasCoords ? `${geo!.lat!.toFixed(5)}, ${geo!.lng!.toFixed(5)}` : 'No GPS fix'}
+                {hasCoords ? `${formatDMS(geo!.lat!, 'lat')}  ${formatDMS(geo!.lng!, 'lng')}` : 'No GPS fix'}
                 {geo?.altitude != null ? `  ·  ALT ${Math.round(geo.altitude)}m` : ''}
               </Text>
               <Text style={styles.cardMeta} numberOfLines={1}>
@@ -315,6 +324,7 @@ const styles = StyleSheet.create({
   cardBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   cardBrand: { fontFamily: theme.font.mono, fontSize: 15, letterSpacing: 3, color: theme.color.gold },
   cardPlace: { fontFamily: theme.font.display, fontSize: 40, color: theme.color.cream },
+  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 19, color: theme.color.cream, opacity: 0.75, marginTop: 6 },
   cardDivider: { height: 2, width: 64, backgroundColor: theme.color.gold, marginTop: 16, marginBottom: 14 },
   cardMeta: { fontFamily: theme.font.mono, fontSize: 20, color: theme.color.cream, opacity: 0.9, marginTop: 4 },
 });

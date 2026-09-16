@@ -206,6 +206,7 @@ export default function AddSpot() {
         capture_altitude: captureGeoData?.altitude ?? null,
         captured_at: captureGeoData?.capturedAt ?? null,
         capture_place_name: captureGeoData?.placeName ?? null,
+        capture_address: captureGeoData?.address ?? null,
         weather_temp_c: captureGeoData?.weatherTempC ?? null,
         weather_condition: captureGeoData?.weatherCondition ?? null,
         location: `SRID=4326;POINT(${resolvedLocation.lng} ${resolvedLocation.lat})`,

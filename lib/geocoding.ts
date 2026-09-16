@@ -26,23 +26,43 @@ export async function searchPlaces(query: string): Promise<PlaceSuggestion[]> {
   }
 }
 
-// Coordinates -> a human place name, for the geo-tag camera's capture
-// location. Prefers the specific named feature ("Marina Beach") when
-// Nominatim's OSM data has one; falls back to the formatted address
-// otherwise. expo-location's on-device reverse geocoder (used elsewhere in
-// this app for the general spot location) only returns a City/Region/
-// Country style label, not named points of interest — Nominatim's
-// OSM-backed data resolves landmarks far more often.
-export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+export type ReverseGeocodeResult = { name: string | null; address: string | null };
+
+// Coordinates -> a human place name AND its full formatted address, for the
+// geo-tag camera's capture location. `name` is the specific named feature
+// ("Marina Beach") when Nominatim's OSM data has one — often null for
+// coordinates with no notable POI. `address` is always the full formatted
+// address when the lookup succeeds, independent of whether a name was
+// found, so a landmark name and its street address can both be shown
+// rather than one silently replacing the other. expo-location's on-device
+// reverse geocoder (used elsewhere in this app for the general spot
+// location) only returns a City/Region/Country style label, not named
+// points of interest — Nominatim's OSM-backed data resolves landmarks far
+// more often.
+export async function reverseGeocode(lat: number, lng: number): Promise<ReverseGeocodeResult> {
   const params = new URLSearchParams({ lat: String(lat), lon: String(lng), format: 'jsonv2' });
   try {
     const res = await fetch(`${NOMINATIM_REVERSE_URL}?${params.toString()}`, {
       headers: { 'User-Agent': USER_AGENT },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { name: null, address: null };
     const data = (await res.json()) as { name?: string; display_name?: string };
-    return data.name || data.display_name || null;
+    return { name: data.name || null, address: data.display_name || null };
   } catch {
-    return null;
+    return { name: null, address: null };
   }
+}
+
+// Decimal degrees -> the traditional degrees/minutes/seconds + hemisphere
+// format real GPS camera apps use ("13°02'59.9\"N"), rather than the plain
+// decimal form (which stays in use elsewhere in the app, e.g. spot detail,
+// where compactness for data browsing matters more than this convention).
+export function formatDMS(decimal: number, axis: 'lat' | 'lng'): string {
+  const direction = axis === 'lat' ? (decimal >= 0 ? 'N' : 'S') : (decimal >= 0 ? 'E' : 'W');
+  const abs = Math.abs(decimal);
+  const degrees = Math.floor(abs);
+  const minutesFull = (abs - degrees) * 60;
+  const minutes = Math.floor(minutesFull);
+  const seconds = ((minutesFull - minutes) * 60).toFixed(1);
+  return `${degrees}°${minutes}'${seconds}"${direction}`;
 }

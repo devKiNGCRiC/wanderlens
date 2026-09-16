@@ -10,6 +10,7 @@ import { ImageViewer } from '@/components/ImageViewer';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
+import { formatDMS } from '@/lib/geocoding';
 
 type SpotDetail = {
   id: string; title: string; description: string | null; genre: string | null;
@@ -49,7 +50,7 @@ export default function SpotDetail() {
   const [geoTag, setGeoTag] = useState<{
     capture_lat: number | null; capture_lng: number | null; capture_altitude: number | null;
     captured_at: string | null; weather_temp_c: number | null; weather_condition: string | null;
-    capture_place_name: string | null;
+    capture_place_name: string | null; capture_address: string | null;
   } | null>(null);
   const [commentActionTarget, setCommentActionTarget] = useState<CommentRow | null>(null);
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
@@ -63,7 +64,7 @@ export default function SpotDetail() {
     const [{ data: spotData }, { data: extraRow }] = await Promise.all([
       supabase.rpc('get_spot', { spot_id: id }).single(),
       supabase.from('spots')
-        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name')
+        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name, capture_address')
         .eq('id', id).maybeSingle(),
     ]);
     setSpot(spotData as SpotDetail);
@@ -228,11 +229,14 @@ export default function SpotDetail() {
           {spot.description && <Text style={styles.description}>{spot.description}</Text>}
           <Text style={styles.timeAgo}>{formatTimeAgo(spot.created_at)}</Text>
           {geoTag?.capture_lat != null && geoTag?.capture_lng != null && (
-            <Text style={styles.geoTagText}>
-              📍 Captured live · {geoTag.capture_place_name ? `${geoTag.capture_place_name} · ` : ''}{geoTag.capture_lat.toFixed(4)}, {geoTag.capture_lng.toFixed(4)}
-              {geoTag.capture_altitude != null ? ` · ${Math.round(geoTag.capture_altitude)}m` : ''}
-              {geoTag.weather_temp_c != null ? ` · ${Math.round(geoTag.weather_temp_c)}°C${geoTag.weather_condition ? `, ${geoTag.weather_condition}` : ''}` : ''}
-            </Text>
+            <>
+              <Text style={styles.geoTagText}>
+                📍 Captured live · {geoTag.capture_place_name ? `${geoTag.capture_place_name} · ` : ''}{formatDMS(geoTag.capture_lat, 'lat')} {formatDMS(geoTag.capture_lng, 'lng')}
+                {geoTag.capture_altitude != null ? ` · ${Math.round(geoTag.capture_altitude)}m` : ''}
+                {geoTag.weather_temp_c != null ? ` · ${Math.round(geoTag.weather_temp_c)}°C${geoTag.weather_condition ? `, ${geoTag.weather_condition}` : ''}` : ''}
+              </Text>
+              {geoTag.capture_address && <Text style={styles.geoTagAddress}>{geoTag.capture_address}</Text>}
+            </>
           )}
 
           <View style={styles.actionRow}>
@@ -400,6 +404,7 @@ const styles = StyleSheet.create({
   description: { fontFamily: theme.font.bodyRegular, fontSize: 14, color: theme.color.cream, marginTop: 14, lineHeight: 20 },
   timeAgo: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted, marginTop: 8 },
   geoTagText: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.gold, marginTop: 4 },
+  geoTagAddress: { fontFamily: theme.font.bodyRegular, fontSize: 10.5, color: theme.color.muted, marginTop: 2 },
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: theme.color.surface2 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   actionText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
