@@ -19,11 +19,11 @@ type Photo = { uri: string; base64: string; width: number; height: number; captu
 // — the mini-map on the geo-tag card should look like the same map, and it
 // costs no API key/billing either way.
 const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
-const MINI_MAP_SIZE = 290;
+const MINI_MAP_SIZE = 200;
 // Card spans (EXPORT_WIDTH - 2*CARD_MARGIN) / EXPORT_WIDTH of the image —
-// 1080 - 2*48 = 984, ~91% — inside the requested 88-96% range.
-const CARD_MARGIN = 48;
-const CARD_PADDING = 30;
+// 1080 - 2*52 = 976, ~90% — inside the requested 88-96% range.
+const CARD_MARGIN = 52;
+const CARD_PADDING = 20;
 
 // Fixed export width for the stamped gallery copy — independent of screen
 // size, so the saved file's quality doesn't depend on the device's own
@@ -261,19 +261,19 @@ export default function SpotCamera() {
                       <>
                         <Image source={{ uri: geo.mapImageUri }} style={StyleSheet.absoluteFill} />
                         <View style={styles.miniMapPin}>
-                          <Ionicons name="location" size={34} color={theme.color.ember} />
+                          <Ionicons name="location" size={24} color={theme.color.ember} />
                         </View>
                       </>
                     ) : (
                       <View style={styles.miniMapFallback}>
-                        <Ionicons name="map-outline" size={36} color={theme.color.gold} />
+                        <Ionicons name="map-outline" size={26} color={theme.color.gold} />
                       </View>
                     )}
                     <View style={styles.miniMapBorder} pointerEvents="none" />
                   </View>
                   <View style={styles.cardTextCol}>
                     <View style={styles.cardBrandRow}>
-                      <Ionicons name="location" size={22} color={theme.color.gold} />
+                      <Ionicons name="location" size={16} color={theme.color.gold} />
                       <Text style={styles.cardBrand}>WANDERLENS</Text>
                     </View>
                     <Text style={styles.cardPlace} numberOfLines={2}>{headline}</Text>
@@ -369,12 +369,12 @@ const styles = StyleSheet.create({
   miniMapFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   miniMapPin: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   miniMapBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 16, borderWidth: 3, borderColor: theme.color.gold },
-  cardTextCol: { flex: 1, marginLeft: 28, justifyContent: 'center' },
-  cardBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
-  cardBrand: { fontFamily: theme.font.mono, fontSize: 21, letterSpacing: 4, color: theme.color.gold },
-  cardPlace: { fontFamily: theme.font.display, fontSize: 52, color: theme.color.cream, lineHeight: 58 },
-  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 22, color: theme.color.cream, opacity: 0.75, marginTop: 8, lineHeight: 29 },
-  cardDivider: { height: 3, width: 64, backgroundColor: theme.color.gold, marginTop: 18, marginBottom: 14 },
-  cardMeta: { fontFamily: theme.font.mono, fontSize: 23, color: theme.color.cream, opacity: 0.9, marginTop: 7 },
-  cardMetaSmall: { fontFamily: theme.font.mono, fontSize: 19, color: theme.color.cream, opacity: 0.6, marginTop: 9 },
+  cardTextCol: { flex: 1, marginLeft: 18, justifyContent: 'center' },
+  cardBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  cardBrand: { fontFamily: theme.font.mono, fontSize: 15, letterSpacing: 3, color: theme.color.gold },
+  cardPlace: { fontFamily: theme.font.display, fontSize: 30, color: theme.color.cream, lineHeight: 34 },
+  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 15, color: theme.color.cream, opacity: 0.75, marginTop: 4, lineHeight: 19 },
+  cardDivider: { height: 2, width: 44, backgroundColor: theme.color.gold, marginTop: 10, marginBottom: 8 },
+  cardMeta: { fontFamily: theme.font.mono, fontSize: 16, color: theme.color.cream, opacity: 0.9, marginTop: 4 },
+  cardMetaSmall: { fontFamily: theme.font.mono, fontSize: 13, color: theme.color.cream, opacity: 0.6, marginTop: 6 },
 });
