@@ -210,6 +210,7 @@ export default function ProfileScreen() {
           onClose={() => setMenuVisible(false)}
           options={[
             { key: 'styles', label: 'Photo styles', icon: 'color-wand-outline', onPress: () => router.push('/photo-studio') },
+            { key: 'notes', label: 'Notes', icon: 'document-text-outline', onPress: () => router.push('/notes') },
             { key: 'about', label: 'About Wanderlens', icon: 'information-circle-outline', onPress: () => router.push('/about') },
             { key: 'signout', label: 'Sign out', icon: 'log-out-outline', destructive: true, onPress: handleSignOut },
             { key: 'delete', label: 'Delete account', icon: 'trash-outline', destructive: true, onPress: handleDeleteAccount },

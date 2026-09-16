@@ -59,6 +59,8 @@ function RootNavigator() {
         <Stack.Screen name="pick-location" options={{ presentation: 'modal', title: 'Pick location' }} />
         <Stack.Screen name="spot-camera" options={{ presentation: 'fullScreenModal', title: 'Camera' }} />
         <Stack.Screen name="my-trails" options={{ presentation: 'modal', title: 'My trails' }} />
+        <Stack.Screen name="notes" options={{ presentation: 'modal', title: 'Notes' }} />
+        <Stack.Screen name="note-editor" options={{ presentation: 'modal', title: 'Note' }} />
         <Stack.Screen name="edit-profile" options={{ presentation: 'modal', title: 'Edit profile' }} />
         <Stack.Screen name="about" options={{ presentation: 'modal', title: 'About' }} />
         <Stack.Screen name="photo-studio" options={{ presentation: 'modal', title: 'Photo Styles' }} />

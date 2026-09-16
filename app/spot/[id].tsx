@@ -53,6 +53,7 @@ export default function SpotDetail() {
     captured_at: string | null; weather_temp_c: number | null; weather_condition: string | null;
     capture_place_name: string | null; capture_address: string | null;
   } | null>(null);
+  const [myNotes, setMyNotes] = useState<{ id: string; title: string }[]>([]);
   const [commentActionTarget, setCommentActionTarget] = useState<CommentRow | null>(null);
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
 
@@ -80,6 +81,8 @@ export default function SpotDetail() {
       setLiked(!!likeRow);
       const { data: savedRow } = await supabase.from('saved_spots').select('*').eq('spot_id', id).eq('user_id', session.user.id).maybeSingle();
       setSaved(!!savedRow);
+      const { data: noteRows } = await supabase.from('notes').select('id, title').eq('spot_id', id).eq('user_id', session.user.id).order('created_at', { ascending: false });
+      setMyNotes(noteRows ?? []);
     }
 
     const { data: commentData } = await supabase.rpc('get_spot_comments', { spot_id_param: id });
@@ -268,6 +271,24 @@ export default function SpotDetail() {
             <Pressable onPress={handleDelete} style={styles.deleteBtn}><Text style={styles.deleteBtnText}>Delete spot</Text></Pressable>
           )}
 
+          {session && (
+            <View style={styles.notesSection}>
+              <View style={styles.notesSectionHeader}>
+                <Text style={styles.notesSectionHeading}>Your notes</Text>
+                <Pressable onPress={() => router.push({ pathname: '/note-editor', params: { spotId: spot.id } })} style={styles.notesAddBtn} accessibilityLabel="Add a note for this spot">
+                  <Ionicons name="add" size={16} color={theme.color.gold} />
+                  <Text style={styles.notesAddBtnText}>Add note</Text>
+                </Pressable>
+              </View>
+              {myNotes.map((n) => (
+                <Pressable key={n.id} onPress={() => router.push({ pathname: '/note-editor', params: { id: n.id } })} style={styles.noteRow}>
+                  <Ionicons name="document-text-outline" size={14} color={theme.color.muted} />
+                  <Text style={styles.noteRowText} numberOfLines={1}>{n.title}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
           <View style={styles.divider} />
           <Text style={styles.commentsHeading}>Comments</Text>
 
@@ -411,6 +432,13 @@ const styles = StyleSheet.create({
   actionText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   deleteBtn: { marginTop: 16 },
   deleteBtnText: { color: theme.color.ember, fontFamily: theme.font.body, fontSize: 12.5 },
+  notesSection: { marginTop: 20 },
+  notesSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  notesSectionHeading: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted },
+  notesAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  notesAddBtnText: { fontFamily: theme.font.body, fontSize: 12, color: theme.color.gold },
+  noteRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.sm, padding: 10, marginTop: 10 },
+  noteRowText: { flex: 1, fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.cream },
   divider: { height: 1, backgroundColor: theme.color.surface2, marginTop: 24, marginBottom: 16 },
   commentsHeading: { fontFamily: theme.font.display, fontSize: 15, color: theme.color.cream, marginBottom: 14 },
   commentRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
