@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert, Switch } from 'react-native';
 import { CameraView, useCameraPermissions, type CameraType, type FlashMode } from 'expo-camera';
+import { StaticMapImageManager } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
@@ -12,8 +13,14 @@ import { reverseGeocode, formatDMS } from '@/lib/geocoding';
 import { saveViewAsImage, saveLocalUriToGallery } from '@/lib/media';
 import { useSpotCameraStore, type CapturedPhoto } from '@/store/spotCamera';
 
-type GeoData = { lat: number | null; lng: number | null; altitude: number | null; placeName: string | null; address: string | null; weatherTempC: number | null; weatherCondition: string | null };
+type GeoData = { lat: number | null; lng: number | null; altitude: number | null; placeName: string | null; address: string | null; weatherTempC: number | null; weatherCondition: string | null; mapImageUri: string | null };
 type Photo = { uri: string; base64: string; width: number; height: number; capturedAt: string };
+
+// Same free OpenFreeMap style already used by the main Map tab (app/(tabs)/map.tsx)
+// — the mini-map on the geo-tag card should look like the same map, and it
+// costs no API key/billing either way.
+const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+const MINI_MAP_SIZE = 220;
 
 // Fixed export width for the stamped gallery copy — independent of screen
 // size, so the saved file's quality doesn't depend on the device's own
@@ -86,13 +93,27 @@ export default function SpotCamera() {
     let weatherCondition: string | null = null;
     let placeName: string | null = null;
     let address: string | null = null;
+    let mapImageUri: string | null = null;
     if (lat !== null && lng !== null) {
-      const [weather, place] = await Promise.all([getCurrentWeather(lat, lng), reverseGeocode(lat, lng)]);
+      const [weather, place, mapImage] = await Promise.all([
+        getCurrentWeather(lat, lng),
+        reverseGeocode(lat, lng),
+        StaticMapImageManager.createImage({
+          center: [lng, lat],
+          zoom: 15,
+          mapStyle: OPENFREEMAP_STYLE,
+          width: MINI_MAP_SIZE,
+          height: MINI_MAP_SIZE,
+          output: 'base64',
+          logo: false,
+        }).catch(() => null), // best-effort, same as weather/reverse-geocode
+      ]);
       if (weather) { weatherTempC = weather.tempC; weatherCondition = weather.condition; }
       placeName = place.name;
       address = place.address;
+      mapImageUri = mapImage;
     }
-    setGeo({ lat, lng, altitude, placeName, address, weatherTempC, weatherCondition });
+    setGeo({ lat, lng, altitude, placeName, address, weatherTempC, weatherCondition, mapImageUri });
     setLocating(false);
   }
 
@@ -235,12 +256,31 @@ export default function SpotCamera() {
               style={[styles.cardScrim, { height: exportHeight * 0.34 }]}
             />
             <View style={styles.cardContent}>
-              <View style={styles.cardBrandRow}>
-                <Ionicons name="location" size={22} color={theme.color.gold} />
-                <Text style={styles.cardBrand}>WANDERLENS</Text>
+              <View style={styles.cardTopRow}>
+                <View style={styles.miniMap}>
+                  {geo?.mapImageUri ? (
+                    <>
+                      <Image source={{ uri: geo.mapImageUri }} style={StyleSheet.absoluteFill} />
+                      <View style={styles.miniMapPin}>
+                        <Ionicons name="location" size={26} color={theme.color.ember} />
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.miniMapFallback}>
+                      <Ionicons name="map-outline" size={28} color={theme.color.gold} />
+                    </View>
+                  )}
+                  <View style={styles.miniMapBorder} pointerEvents="none" />
+                </View>
+                <View style={styles.cardTextCol}>
+                  <View style={styles.cardBrandRow}>
+                    <Ionicons name="location" size={18} color={theme.color.gold} />
+                    <Text style={styles.cardBrand}>WANDERLENS</Text>
+                  </View>
+                  <Text style={styles.cardPlace} numberOfLines={2}>{headline}</Text>
+                  {geo?.address && <Text style={styles.cardAddress} numberOfLines={3}>{geo.address}</Text>}
+                </View>
               </View>
-              <Text style={styles.cardPlace} numberOfLines={2}>{headline}</Text>
-              {geo?.address && <Text style={styles.cardAddress} numberOfLines={2}>{geo.address}</Text>}
               <View style={styles.cardDivider} />
               <Text style={styles.cardMeta} numberOfLines={1}>
                 {hasCoords ? `${formatDMS(geo!.lat!, 'lat')}  ${formatDMS(geo!.lng!, 'lng')}` : 'No GPS fix'}
@@ -321,10 +361,16 @@ const styles = StyleSheet.create({
   cornerBR: { bottom: CORNER_INSET, right: CORNER_INSET, borderBottomWidth: 4, borderRightWidth: 4 },
   cardScrim: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   cardContent: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 36 },
+  cardTopRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  miniMap: { width: MINI_MAP_SIZE, height: MINI_MAP_SIZE, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.color.surface2 },
+  miniMapFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  miniMapPin: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  miniMapBorder: { ...StyleSheet.absoluteFillObject, borderRadius: 14, borderWidth: 3, borderColor: theme.color.gold },
+  cardTextCol: { flex: 1, marginLeft: 20, justifyContent: 'center' },
   cardBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   cardBrand: { fontFamily: theme.font.mono, fontSize: 15, letterSpacing: 3, color: theme.color.gold },
-  cardPlace: { fontFamily: theme.font.display, fontSize: 40, color: theme.color.cream },
-  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 19, color: theme.color.cream, opacity: 0.75, marginTop: 6 },
+  cardPlace: { fontFamily: theme.font.display, fontSize: 34, color: theme.color.cream },
+  cardAddress: { fontFamily: theme.font.bodyRegular, fontSize: 16, color: theme.color.cream, opacity: 0.75, marginTop: 6 },
   cardDivider: { height: 2, width: 64, backgroundColor: theme.color.gold, marginTop: 16, marginBottom: 14 },
   cardMeta: { fontFamily: theme.font.mono, fontSize: 20, color: theme.color.cream, opacity: 0.9, marginTop: 4 },
 });
