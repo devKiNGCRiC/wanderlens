@@ -3,7 +3,7 @@ import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert, Swi
 import { CameraView, useCameraPermissions, type CameraType, type FlashMode } from 'expo-camera';
 import { StaticMapImageManager } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
@@ -40,6 +40,11 @@ const EXPORT_WIDTH = 1080;
 export default function SpotCamera() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // Set when this screen is opened directly from a hotspot (e.g. the Feed
+  // FAB) rather than from within add-spot's own Camera button — in that
+  // case there's no existing add-spot screen underneath to go "back" to,
+  // so the captured photo needs to be handed forward into a fresh one.
+  const { standalone } = useLocalSearchParams<{ standalone?: string }>();
   const setCaptured = useSpotCameraStore((s) => s.setCaptured);
   const cameraRef = useRef<CameraView>(null);
   const stampRef = useRef<View>(null);
@@ -160,7 +165,8 @@ export default function SpotCamera() {
       weatherCondition: geo?.weatherCondition ?? null,
     };
     setCaptured(captured);
-    router.back();
+    if (standalone) router.replace('/add-spot');
+    else router.back();
   }
 
   if (!permission) return <View style={styles.root} />;

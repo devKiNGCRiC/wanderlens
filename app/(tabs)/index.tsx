@@ -254,6 +254,14 @@ export default function FeedScreen() {
         ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No posts match this filter yet.</Text> : null}
       />
       <FilterSheet visible={filterSheetVisible} onClose={() => setFilterSheetVisible(false)} genre={genreFilter} time={timeFilter} onApply={applyFilters} />
+
+      <Pressable
+        onPress={() => router.push({ pathname: '/spot-camera', params: { standalone: '1' } })}
+        style={[styles.fab, { bottom: 64 + insets.bottom + 16 }]}
+        accessibilityLabel="Capture a geo-tagged spot photo"
+      >
+        <Ionicons name="camera" size={24} color={theme.color.dusk} />
+      </Pressable>
     </ScreenBackground>
   );
 }
@@ -304,4 +312,9 @@ const styles = StyleSheet.create({
   viewComments: { fontFamily: theme.font.bodyRegular, fontSize: 12, color: theme.color.muted, marginTop: 4 },
   timeAgo: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted, marginTop: 5, letterSpacing: 0.5 },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 40 },
+  fab: {
+    position: 'absolute', right: 20, width: 56, height: 56, borderRadius: 28,
+    backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+  },
 });
