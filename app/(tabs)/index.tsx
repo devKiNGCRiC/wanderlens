@@ -257,10 +257,10 @@ export default function FeedScreen() {
 
       <Pressable
         onPress={() => router.push({ pathname: '/spot-camera', params: { standalone: '1' } })}
-        style={[styles.fab, { bottom: 64 + insets.bottom + 16 }]}
+        style={styles.fab}
         accessibilityLabel="Capture a geo-tagged spot photo"
       >
-        <Ionicons name="camera" size={24} color={theme.color.dusk} />
+        <Ionicons name="camera" size={22} color={theme.color.cream} />
       </Pressable>
     </ScreenBackground>
   );
@@ -313,8 +313,8 @@ const styles = StyleSheet.create({
   timeAgo: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted, marginTop: 5, letterSpacing: 0.5 },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 40 },
   fab: {
-    position: 'absolute', right: 20, width: 56, height: 56, borderRadius: 28,
-    backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+    position: 'absolute', right: 20, bottom: 24, width: 52, height: 52, borderRadius: 26,
+    backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
 });
