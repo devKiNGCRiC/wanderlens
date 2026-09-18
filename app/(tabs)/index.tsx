@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserLocation } from '@/hooks/useUserLocation';
 import { useGoldenHour } from '@/hooks/useGoldenHour';
+import { useTourTarget } from '@/hooks/useTourTarget';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { useNotifications } from '@/context/NotificationsProvider';
@@ -38,6 +39,7 @@ export default function FeedScreen() {
   const { unreadCount } = useNotifications();
   const insets = useSafeAreaInsets();
   const goldenHourLabel = useGoldenHour(coords?.lat ?? null, coords?.lng ?? null);
+  const cameraFabRef = useTourTarget('feed-camera-fab');
 
   const [nearbySpots, setNearbySpots] = useState<NearbySpot[]>([]);
   const [photographers, setPhotographers] = useState<Photographer[]>([]);
@@ -256,6 +258,8 @@ export default function FeedScreen() {
       <FilterSheet visible={filterSheetVisible} onClose={() => setFilterSheetVisible(false)} genre={genreFilter} time={timeFilter} onApply={applyFilters} />
 
       <Pressable
+        ref={cameraFabRef}
+        collapsable={false}
         onPress={() => router.push({ pathname: '/spot-camera', params: { standalone: '1' } })}
         style={styles.fab}
         accessibilityLabel="Capture a geo-tagged spot photo"

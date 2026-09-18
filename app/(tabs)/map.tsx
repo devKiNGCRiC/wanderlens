@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
 import { useUserLocation } from '@/hooks/useUserLocation';
+import { useTourTarget } from '@/hooks/useTourTarget';
 import { clusterSpots } from '@/lib/clusterSpots';
 import { ScreenBackground } from '@/components/ScreenBackground';
 
@@ -24,6 +25,7 @@ export default function MapScreen() {
   const params = useLocalSearchParams<{ focusLat?: string; focusLng?: string }>();
   const { session } = useAuth();
   const { refresh } = useUserLocation();
+  const trailFabRef = useTourTarget('map-trail-fab');
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [spots, setSpots] = useState<Spot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -176,7 +178,7 @@ export default function MapScreen() {
 
       <ImageViewer visible={viewerVisible} uri={selected?.photo_url} onClose={() => setViewerVisible(false)} />
 
-      <Pressable style={styles.trailFab} onPress={() => router.push('/trail-generator')}>
+      <Pressable ref={trailFabRef} collapsable={false} style={styles.trailFab} onPress={() => router.push('/trail-generator')}>
         <Ionicons name="sparkles" size={20} color={theme.color.gold} />
       </Pressable>
       <Pressable style={styles.fab} onPress={() => router.push('/add-spot')}>

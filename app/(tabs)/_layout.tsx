@@ -4,13 +4,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { theme } from '@/constants/theme';
+import { TAB_BAR_BASE_HEIGHT } from '@/constants/layout';
 import { useChat } from '@/context/ChatProvider';
+import { TourProvider } from '@/context/TourProvider';
 
 export default function TabLayout() {
   const { unreadCount } = useChat();
   const insets = useSafeAreaInsets();
 
   return (
+    <TourProvider>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -20,7 +23,7 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: theme.color.surface,
           borderTopColor: theme.color.surface2,
-          height: 64 + insets.bottom,
+          height: TAB_BAR_BASE_HEIGHT + insets.bottom,
           paddingTop: 8,
           paddingBottom: insets.bottom + 16,
         },
@@ -63,5 +66,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </TourProvider>
   );
 }

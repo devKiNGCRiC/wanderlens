@@ -15,6 +15,7 @@ import { ScreenBackground } from '@/components/ScreenBackground';
 import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
 import { PolaroidGridSkeleton } from '@/components/skeletons/PolaroidGridSkeleton';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTour } from '@/context/TourProvider';
 
 type MySpot = { id: string; title: string; photo_url: string | null; genre: string | null };
 
@@ -29,6 +30,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { session, profile, signOut } = useAuth();
   const insets = useSafeAreaInsets();
+  const { startTour } = useTour();
   const [mySpots, setMySpots] = useState<MySpot[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
@@ -211,6 +213,7 @@ export default function ProfileScreen() {
           options={[
             { key: 'styles', label: 'Photo styles', icon: 'color-wand-outline', onPress: () => router.push('/photo-studio') },
             { key: 'notes', label: 'Notes', icon: 'document-text-outline', onPress: () => router.push('/notes') },
+            { key: 'tour', label: 'App tour', icon: 'compass-outline', onPress: () => setTimeout(startTour, 350) },
             { key: 'about', label: 'About Wanderlens', icon: 'information-circle-outline', onPress: () => router.push('/about') },
             { key: 'signout', label: 'Sign out', icon: 'log-out-outline', destructive: true, onPress: handleSignOut },
             { key: 'delete', label: 'Delete account', icon: 'trash-outline', destructive: true, onPress: handleDeleteAccount },
