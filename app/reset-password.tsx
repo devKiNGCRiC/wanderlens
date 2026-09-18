@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
+import { PasswordInput } from '@/components/PasswordInput';
 
 export default function ResetPassword() {
   const { recoveryTokens, completePasswordRecovery } = useAuth();
@@ -64,10 +65,10 @@ export default function ResetPassword() {
         ) : (
           <>
             <Text style={styles.label}>New password</Text>
-            <TextInput style={styles.input} placeholder="At least 6 characters" placeholderTextColor={theme.color.muted} value={password} onChangeText={setPassword} secureTextEntry />
+            <PasswordInput placeholder="At least 6 characters" value={password} onChangeText={setPassword} />
 
             <Text style={styles.label}>Confirm password</Text>
-            <TextInput style={styles.input} placeholder="Re-enter your new password" placeholderTextColor={theme.color.muted} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />
+            <PasswordInput placeholder="Re-enter your new password" value={confirmPassword} onChangeText={setConfirmPassword} />
 
             <Pressable style={styles.button} onPress={handleSubmit} disabled={saving}>
               {saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.buttonText}>Update password</Text>}
@@ -88,7 +89,6 @@ const styles = StyleSheet.create({
   wordmark: { fontFamily: theme.font.display, fontSize: 22, color: theme.color.gold, textAlign: 'center', marginBottom: 6 },
   title: { fontFamily: theme.font.displayItalic, fontSize: 24, color: theme.color.cream, textAlign: 'center', marginBottom: 32 },
   label: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted, marginBottom: 8, marginTop: 16 },
-  input: { backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, padding: 14, color: theme.color.cream, fontFamily: theme.font.bodyRegular, fontSize: 15, borderWidth: 1, borderColor: theme.color.surface2 },
   button: { backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 15, alignItems: 'center', marginTop: 28 },
   buttonText: { color: theme.color.dusk, fontFamily: theme.font.body, fontSize: 15 },
   link: { marginTop: 20, textAlign: 'center', color: theme.color.muted, fontFamily: theme.font.bodyRegular, fontSize: 13 },

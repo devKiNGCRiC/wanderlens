@@ -4,6 +4,7 @@ import { Link } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { ScreenBackground } from '@/components/ScreenBackground';
+import { PasswordInput } from '@/components/PasswordInput';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -31,7 +32,7 @@ export default function Login() {
         <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.color.muted} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
 
         <Text style={styles.label}>Password</Text>
-        <TextInput style={styles.input} placeholder="Your password" placeholderTextColor={theme.color.muted} value={password} onChangeText={setPassword} secureTextEntry />
+        <PasswordInput placeholder="Your password" value={password} onChangeText={setPassword} />
 
         <Pressable style={styles.button} onPress={handleLogin} disabled={loading}>
           {loading ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.buttonText}>Log in</Text>}
