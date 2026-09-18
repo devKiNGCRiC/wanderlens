@@ -62,3 +62,6 @@ Thumbs.db
 # academic submission docs — carry personal/identifying info
 Wanderlens_Abstract.md
 wanderlens-project-doc.md
+
+# personal study/viva notes explaining the codebase — not shipped with the app
+Document/
