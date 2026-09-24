@@ -1,7 +1,7 @@
 /**
  * Route: /map, the Map tab: the crowdsourced photo-spot map.
  *
- * Purpose: shows community spots within 30 km of the user as photo pins on a
+ * Purpose: shows community spots in the visible map area as photo pins on a
  * MapLibre map (pillar 1 of the app's thesis: real photographers' spots).
  * Tapping a pin opens a card with the photo, genre and timing details, a link
  * to /spot/[id], and a delete button for the spot's creator. Two FABs open
@@ -9,12 +9,20 @@
  * app/_layout.tsx.
  *
  * How it works:
- * - On focus: gets the device location, then calls the `nearby_spots` RPC.
+ * - Spots are loaded for the area on screen: every time the user finishes
+ *   panning or zooming, `nearby_spots` is called around the visible centre,
+ *   with a radius that covers the visible area (5-300 km). Before this the
+ *   map only ever loaded 30 km around the user's GPS position, so a spot
+ *   posted via "Search a place" for another trip never appeared.
+ * - On focus: gets the device location, starts at the focus point or the
+ *   user, and re-loads the last viewed area so a newly added spot shows up.
  * - Spots a few metres apart are grouped by clusterSpots (lib/clusterSpots.ts)
  *   into one pin with a count badge; the card then pages through that group.
  * - Pins are React views drawn with MapLibre's ViewAnnotation.
- * - Optional `focusLat` / `focusLng` route params centre the camera on a
- *   specific point (zoom 14) instead of the user's position (zoom 12).
+ * - Optional `focusLat` / `focusLng` route params (spot detail's "View on
+ *   map") centre the camera on a specific point at zoom 14. On first mount
+ *   that is the Camera's initialViewState; when the tab is already mounted
+ *   the camera flies there.
  * - Deleting a spot writes to the `spots` table directly; RLS on the
  *   database decides whether the delete is actually allowed.
  *
@@ -26,9 +34,9 @@
  * (CLAUDE.md, deferred ShapeSource/SymbolLayer rewrite). The `deselectNonce`
  * key trick below is how a pin is made tappable again after closing the card.
  */
-import { useState, useCallback, useMemo } from 'react';
-import { View, StyleSheet, Text, Pressable, ActivityIndicator, Alert, Image, ScrollView } from 'react-native';
-import { Map, Camera, ViewAnnotation } from '@maplibre/maplibre-react-native';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { View, StyleSheet, Text, Pressable, ActivityIndicator, Alert, Image, type NativeSyntheticEvent } from 'react-native';
+import { Map, Camera, ViewAnnotation, type CameraRef, type ViewStateChangeEvent } from '@maplibre/maplibre-react-native';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
@@ -37,11 +45,20 @@ import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
 import { useUserLocation } from '@/hooks/useUserLocation';
 import { useTourTarget } from '@/hooks/useTourTarget';
-import { clusterSpots } from '@/lib/clusterSpots';
+import { clusterSpots, haversineMeters } from '@/lib/clusterSpots';
 import { ScreenBackground } from '@/components/ScreenBackground';
 
 // Free vector map style from OpenFreeMap ("liberty" theme); no API key needed.
 const OPENFREEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+
+// Bounds for the spot query radius. The minimum keeps a zoomed-in view from
+// asking for a tiny circle; the maximum caps how much a zoomed-out view
+// downloads over mobile data.
+const MIN_RADIUS_KM = 5;
+const MAX_RADIUS_KM = 300;
+
+/** An area to load spots for: a centre point and a radius in km. */
+type Region = { lat: number; lng: number; radiusKm: number };
 
 /** One row from the nearby_spots RPC, including coordinates for the pin. */
 type Spot = {
@@ -73,14 +90,53 @@ export default function MapScreen() {
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [deselectNonce, setDeselectNonce] = useState(0);
   const [viewerVisible, setViewerVisible] = useState(false);
+  // Lets code move the camera (used for "View on map" when the tab is
+  // already mounted, where initialViewState no longer applies).
+  const cameraRef = useRef<CameraRef>(null);
+  // The last area spots were loaded for, so returning to the tab re-loads
+  // what the user was looking at rather than jumping back to their GPS area.
+  const lastRegionRef = useRef<Region | null>(null);
+  // Increments per request so a slow, older response can't overwrite the
+  // spots of the area the user has since moved to.
+  const requestIdRef = useRef(0);
 
   // Group nearby spots into pins. useMemo re-runs the clustering only when
   // `spots` changes, not on every render (e.g. when paging the card).
   const clusters = useMemo(() => clusterSpots(spots), [spots]);
 
-  // Reload location and nearby spots every time the tab gains focus, so a
-  // spot added via the + FAB appears after returning. useFocusEffect is
-  // expo-router's "run when this screen is focused" hook.
+  /**
+   * Loads the spots for one area through the nearby_spots RPC and remembers
+   * the area. Responses from superseded requests are dropped.
+   */
+  const loadRegion = useCallback(async (region: Region) => {
+    lastRegionRef.current = region;
+    const requestId = ++requestIdRef.current;
+    const { data, error } = await supabase.rpc('nearby_spots', { lat: region.lat, long: region.lng, radius_km: region.radiusKm });
+    if (requestId !== requestIdRef.current) return;
+    if (!error && data) setSpots(data as Spot[]);
+  }, []);
+
+  /**
+   * Fires when the user stops panning/zooming (and after the first render).
+   * The query radius is the distance from the visible centre to a corner of
+   * the screen, so the circle covers everything on screen, clamped to
+   * MIN/MAX_RADIUS_KM.
+   */
+  function handleRegionDidChange(e: NativeSyntheticEvent<ViewStateChangeEvent>) {
+    const { center, bounds } = e.nativeEvent;
+    if (!center || !bounds) return;
+    const [lng, lat] = center;
+    const [west, , , north] = bounds;
+    const cornerKm = haversineMeters(lat, lng, north, west) / 1000;
+    const radiusKm = Math.min(MAX_RADIUS_KM, Math.max(MIN_RADIUS_KM, Math.ceil(cornerKm)));
+    loadRegion({ lat, lng, radiusKm });
+  }
+
+  // Every time the tab gains focus (useFocusEffect is expo-router's "run when
+  // this screen is focused" hook): refresh the user's location, then re-load
+  // the last viewed area, so a spot added via the + FAB appears after
+  // returning. On the very first visit there is no last area yet, so load
+  // around the focus point (if any) or the user.
   useFocusEffect(
     useCallback(() => {
       (async () => {
@@ -89,12 +145,21 @@ export default function MapScreen() {
         // then shows the permission message because coords is still null.
         if (!loc) { setLoading(false); return; }
         setCoords(loc);
-        const { data, error } = await supabase.rpc('nearby_spots', { lat: loc.lat, long: loc.lng, radius_km: 30 });
-        if (!error && data) setSpots(data as Spot[]);
+        await loadRegion(lastRegionRef.current ?? { lat: loc.lat, lng: loc.lng, radiusKm: 30 });
         setLoading(false);
       })();
-    }, [])
+    }, [refresh, loadRegion])
   );
+
+  // "View on map" from a spot: when focus params arrive while the map is
+  // already mounted, fly the camera there. The move triggers
+  // handleRegionDidChange, which loads that area's spots.
+  const focusLat = params.focusLat ? Number(params.focusLat) : null;
+  const focusLng = params.focusLng ? Number(params.focusLng) : null;
+  useEffect(() => {
+    if (focusLat === null || focusLng === null) return;
+    cameraRef.current?.flyTo({ center: [focusLng, focusLat], zoom: 14 });
+  }, [focusLat, focusLng]);
 
   /**
    * Closes the spot card and resets paging. Bumping `deselectNonce` changes
@@ -146,9 +211,10 @@ export default function MapScreen() {
   return (
     <ScreenBackground>
     <View style={styles.container}>
-      <Map style={styles.map} mapStyle={OPENFREEMAP_STYLE} logo={false}>
-        {/* initialViewState only applies when the camera first mounts */}
-        <Camera initialViewState={{ center: focusCenter, zoom: params.focusLat ? 14 : 12 }} />
+      <Map style={styles.map} mapStyle={OPENFREEMAP_STYLE} logo={false} onRegionDidChange={handleRegionDidChange}>
+        {/* initialViewState only applies when the camera first mounts; later
+            moves go through cameraRef (see the focus-params effect). */}
+        <Camera ref={cameraRef} initialViewState={{ center: focusCenter, zoom: params.focusLat ? 14 : 12 }} />
         {/* One pin per cluster. The first spot in the group supplies the
             position and thumbnail; a badge shows the group size if > 1. */}
         {clusters.map((cluster) => {

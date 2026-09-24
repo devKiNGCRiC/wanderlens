@@ -11,10 +11,11 @@ type SpotLike = { id: string; lat: number; lng: number };
 
 /**
  * Great-circle distance between two lat/lng points using the haversine
- * formula, which treats the Earth as a sphere.
+ * formula, which treats the Earth as a sphere. Also used by the Map tab to
+ * size its spot query to the visible area.
  * @returns Distance in metres.
  */
-function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
+export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
   // Mean Earth radius in metres.
   const R = 6371000;
   const toRad = (d: number) => (d * Math.PI) / 180;
