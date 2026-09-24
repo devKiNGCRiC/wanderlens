@@ -7,9 +7,16 @@
  *   pick-location, spot-camera, and chat location sharing.
  * - `formatDMS`: degrees/minutes/seconds display for spot-camera and spot detail.
  *
- * All lookups use OpenStreetMap's Nominatim service over plain `fetch`, and
- * never throw: failures come back as empty/null results.
+ * - `placeLabel` / `geocodePlace`: the "City, Region, Country" label and the
+ *   typed-place search used by add-spot, pick-location and chat location
+ *   sharing. They try expo-location's on-device geocoder first and fall back
+ *   to Nominatim.
+ *
+ * Lookups use OpenStreetMap's Nominatim service over plain `fetch` (plus
+ * expo-location for the two helpers above), and never throw: failures come
+ * back as empty/null results.
  */
+import * as Location from 'expo-location';
 
 /** One autocomplete suggestion: Nominatim's place id and its full display name. */
 export type PlaceSuggestion = { id: string; label: string };
@@ -75,6 +82,77 @@ export async function reverseGeocode(lat: number, lng: number): Promise<ReverseG
     return { name: data.name || null, address: data.display_name || null };
   } catch {
     return { name: null, address: null };
+  }
+}
+
+/** Joins the parts that exist into "City, Region, Country"; '' if none do. */
+function joinLabel(parts: (string | null | undefined)[]): string {
+  return parts.filter(Boolean).join(', ');
+}
+
+/**
+ * Coordinates -> a "City, Region, Country" label, or null if both lookups fail.
+ *
+ * Why the fallback: on Android, expo-location's reverseGeocodeAsync throws
+ * `NullPointerException: getCountryCode(...) must not be null` whenever the
+ * system geocoder returns an address without a country code. Google's
+ * geocoder does exactly that for disputed regions such as Arunachal Pradesh
+ * (e.g. Tawang), so every lookup there failed. Nominatim's OpenStreetMap data
+ * labels these places normally, so it is used when the device lookup throws
+ * or returns nothing usable.
+ */
+export async function placeLabel(lat: number, lng: number): Promise<string | null> {
+  // 1. On-device geocoder: fast, no network request of our own.
+  try {
+    const [place] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+    const text = joinLabel([place?.city || place?.subregion, place?.region, place?.country]);
+    if (text) return text;
+  } catch {
+    // Fall through to Nominatim (see the doc comment above).
+  }
+  // 2. Nominatim, asking for the structured `address` parts so the label keeps
+  // the same short format instead of Nominatim's long display_name.
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lng), format: 'jsonv2', addressdetails: '1', zoom: '10' });
+  try {
+    const res = await fetch(`${NOMINATIM_REVERSE_URL}?${params.toString()}`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { address?: Record<string, string | undefined> };
+    const a = data.address ?? {};
+    // OSM uses different keys depending on the settlement's size.
+    const city = a.city || a.town || a.village || a.hamlet || a.county || a.state_district;
+    return joinLabel([city, a.state, a.country]) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Typed place name -> the coordinates of the best match, or null if nothing
+ * was found. Same two-step approach as placeLabel: the on-device geocoder
+ * first, then Nominatim when it throws or finds nothing.
+ */
+export async function geocodePlace(query: string): Promise<{ lat: number; lng: number } | null> {
+  const q = query.trim();
+  if (!q) return null;
+  try {
+    const [hit] = await Location.geocodeAsync(q);
+    if (hit) return { lat: hit.latitude, lng: hit.longitude };
+  } catch {
+    // Fall through to Nominatim.
+  }
+  const params = new URLSearchParams({ q, format: 'json', limit: '1' });
+  try {
+    const res = await fetch(`${NOMINATIM_SEARCH_URL}?${params.toString()}`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+    if (!res.ok) return null;
+    // Nominatim returns coordinates as strings.
+    const [hit] = (await res.json()) as { lat: string; lon: string }[];
+    return hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null;
+  } catch {
+    return null;
   }
 }
 

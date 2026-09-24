@@ -56,7 +56,6 @@ import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-rou
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
 import * as DocumentPicker from 'expo-document-picker';
 import { decode } from 'base64-arraybuffer';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -76,6 +75,7 @@ import { MessageSearchOverlay } from '@/components/chat/MessageSearchOverlay';
 import { VideoViewerModal } from '@/components/chat/VideoViewerModal';
 import { RequestBanner } from '@/components/chat/RequestBanner';
 import { generateClientId, openInMaps } from '@/lib/chat';
+import { placeLabel } from '@/lib/geocoding';
 import { saveRemoteMediaToGallery, saveViewAsImage, probeAudioDuration } from '@/lib/media';
 
 /**
@@ -1086,15 +1086,10 @@ export default function ChatThread() {
       }
       lat = coords.lat;
       lng = coords.lng;
-      // Default label: coordinates to 4 decimal places.
-      label = `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
-      try {
-        const [place] = await Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng });
-        const text = [place?.city || place?.subregion, place?.region, place?.country].filter(Boolean).join(', ');
-        if (text) label = text;
-      } catch {
-        // Keep the coordinate fallback label — geocoding is a nice-to-have here.
-      }
+      // "City, Region, Country" via the device geocoder with an OpenStreetMap
+      // fallback (lib/geocoding.ts); if both fail, show the coordinates to
+      // 4 decimal places. Geocoding is a nice-to-have here.
+      label = (await placeLabel(coords.lat, coords.lng)) ?? `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`;
       const temp: LocalMessage = {
         id: tempId,
         sender_id: session.user.id,

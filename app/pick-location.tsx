@@ -11,7 +11,8 @@
  * - Optional `lat` / `lng` route params (strings) set the starting point;
  *   without them the map opens on fixed default coordinates.
  * - Tapping the map moves the pin and reverse-geocodes the new point into a
- *   "City, Region, Country" label with expo-location.
+ *   "City, Region, Country" label via placeLabel in lib/geocoding.ts (the
+ *   device geocoder, falling back to OpenStreetMap).
  * - "Use this location" writes { lat, lng, label } into the
  *   `useLocationPickerStore` Zustand store and goes back; add-spot reads the
  *   store when it regains focus.
@@ -20,13 +21,13 @@
  * unlike react-native-maps with Google (see CLAUDE.md's stack table).
  */
 import { useState, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
-import { Map, Camera, ViewAnnotation } from '@maplibre/maplibre-react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, type NativeSyntheticEvent } from 'react-native';
+import { Map, Camera, ViewAnnotation, type PressEvent } from '@maplibre/maplibre-react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
+import { placeLabel } from '@/lib/geocoding';
 import { useLocationPickerStore } from '@/store/locationPicker';
 import { ScreenBackground } from '@/components/ScreenBackground';
 
@@ -57,20 +58,14 @@ export default function PickLocation() {
 
   /**
    * Reverse-geocodes a point into "City, Region, Country" and stores it as the
-   * label. Falls back to the raw coordinates (4 decimal places) when the
-   * geocoder returns nothing useful or throws.
+   * label. placeLabel (lib/geocoding.ts) tries the device geocoder, then
+   * OpenStreetMap; if both fail, the raw coordinates (4 decimal places) are shown.
    */
   async function resolveLabel(lat: number, lng: number) {
     setResolving(true);
-    try {
-      const [place] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-      const text = [place?.city || place?.subregion, place?.region, place?.country].filter(Boolean).join(', ');
-      setLabel(text || `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-    } catch {
-      setLabel(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-    } finally {
-      setResolving(false);
-    }
+    const text = await placeLabel(lat, lng);
+    setLabel(text ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+    setResolving(false);
   }
 
   // Label the starting point once, when the screen mounts. A plain useEffect
@@ -80,12 +75,17 @@ export default function PickLocation() {
   }, []);
 
   /**
-   * Map tap handler. MapLibre passes a GeoJSON point feature whose
-   * coordinates are in [longitude, latitude] order. Moves the pin and
-   * re-resolves the label.
+   * Map tap handler. MapLibre v11 passes a native event whose
+   * `nativeEvent.lngLat` is the tapped point in [longitude, latitude] order.
+   * Moves the pin and re-resolves the label.
+   *
+   * Gotcha: older MapLibre versions passed a GeoJSON feature
+   * (`e.geometry.coordinates`) instead. Reading that shape on v11 finds
+   * nothing, so taps were silently ignored. The typed event makes such a
+   * mismatch a type error rather than a no-op.
    */
-  function handleMapPress(e: any) {
-    const coords = e?.geometry?.coordinates;
+  function handleMapPress(e: NativeSyntheticEvent<PressEvent>) {
+    const coords = e.nativeEvent?.lngLat;
     if (!coords) return;
     const [lng, lat] = coords;
     setPoint({ lat, lng });

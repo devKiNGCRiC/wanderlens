@@ -47,6 +47,7 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { generateCaption } from '@/lib/ai';
+import { placeLabel, geocodePlace } from '@/lib/geocoding';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PhotoStyleFrame, type PhotoStyleKey, type CaptionFontKey } from '@/components/PhotoStyleFrame';
 import { PhotoStylePicker } from '@/components/PhotoStylePicker';
@@ -166,15 +167,6 @@ export default function AddSpot() {
   }
 
   /**
-   * Builds a "City, Region, Country" label from an expo-location reverse
-   * geocode result, falling back to the subregion when there's no city, and
-   * to `fallback` when nothing usable came back.
-   */
-  function labelFromPlace(place: Location.LocationGeocodedAddress | undefined, fallback: string) {
-    return [place?.city || place?.subregion, place?.region, place?.country].filter(Boolean).join(', ') || fallback;
-  }
-
-  /**
    * "I'm here now" mode: asks for when-in-use location permission, reads the
    * device's current position, reverse-geocodes it to a label, and stores it
    * as the resolved location. Shows an alert on denial or failure.
@@ -191,8 +183,10 @@ export default function AddSpot() {
       // can still be refined afterwards on the map picker.
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const { latitude, longitude } = pos.coords;
-      const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
-      setResolvedLocation({ lat: latitude, lng: longitude, label: labelFromPlace(place, 'Location detected') });
+      // placeLabel never throws (it falls back to OpenStreetMap when the
+      // device geocoder fails), so a label problem can't discard the GPS fix.
+      const label = await placeLabel(latitude, longitude);
+      setResolvedLocation({ lat: latitude, lng: longitude, label: label ?? 'Location detected' });
     } catch (err: any) {
       Alert.alert('Could not detect location', err.message ?? 'Please try again.');
     } finally {
@@ -205,21 +199,24 @@ export default function AddSpot() {
    * first match, then reverse-geocodes those coordinates so the label is in
    * the same "City, Region, Country" format as GPS detection. Falls back to
    * the user's own query text as the label.
+   *
+   * Both steps go through lib/geocoding.ts, which falls back to OpenStreetMap
+   * when the device geocoder fails. Before this, a failing label lookup (the
+   * Android crash for Arunachal Pradesh places like Tawang) threw away a
+   * search that had actually found the place.
    */
   async function searchPlace() {
-    if (!placeQuery.trim()) return;
+    const query = placeQuery.trim();
+    if (!query) return;
     setResolvingLocation(true);
     try {
-      const results = await Location.geocodeAsync(placeQuery.trim());
-      if (results.length === 0) {
+      const hit = await geocodePlace(query);
+      if (!hit) {
         Alert.alert('Not found', 'No matching location found — try a more specific search.');
         return;
       }
-      const { latitude, longitude } = results[0];
-      const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
-      setResolvedLocation({ lat: latitude, lng: longitude, label: labelFromPlace(place, placeQuery.trim()) });
-    } catch (err: any) {
-      Alert.alert('Could not find that place', err.message ?? 'Please try again.');
+      const label = await placeLabel(hit.lat, hit.lng);
+      setResolvedLocation({ lat: hit.lat, lng: hit.lng, label: label ?? query });
     } finally {
       setResolvingLocation(false);
     }
