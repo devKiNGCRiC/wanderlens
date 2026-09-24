@@ -43,7 +43,7 @@ export function ShareProfileModal({ visible, onClose, userId, name }: { visible:
           <Text style={styles.heading}>Share profile</Text>
           {/* Remote QR image from api.qrserver.com */}
           <Image source={{ uri: qrUrl }} style={styles.qr} />
-          <Text style={styles.hint}>Scan to open {name}'s profile in Wanderlens</Text>
+          <Text style={styles.hint}>Scan to open {name}&apos;s profile in Wanderlens</Text>
           <Pressable onPress={handleShare} style={styles.shareBtn}>
             <Text style={styles.shareBtnText}>Share link instead</Text>
           </Pressable>

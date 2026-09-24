@@ -62,17 +62,19 @@ Deno.serve(async (req) => {
     return fail('That photo is too large to caption. Try a smaller one.', 413);
   }
 
-  // --- 2. Auth + quota ------------------------------------------------------
-  const auth = await authorize(req, 'caption');
-  if (!auth.ok) return auth.response;
-
-  // The real vendor key, read from Edge Function secrets. This check runs after
-  // authorize(), so a missing key still consumes the caller's quota slot.
+  // The real vendor key, read from Edge Function secrets. Checked BEFORE
+  // authorize(), because authorize() consumes a quota slot and there is no
+  // refund path: checking afterwards would charge every caller for a request
+  // that can never succeed while the secret is missing.
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) {
     console.error('GEMINI_API_KEY is not set — run: supabase secrets set GEMINI_API_KEY=...');
     return fail('Caption generation is not configured. Please contact support.', 500);
   }
+
+  // --- 2. Auth + quota ------------------------------------------------------
+  const auth = await authorize(req, 'caption');
+  if (!auth.ok) return auth.response;
 
   // --- 3. Vendor call -------------------------------------------------------
   // Key goes in the x-goog-api-key header rather than the ?key= query param the

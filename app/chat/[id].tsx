@@ -5,9 +5,9 @@
  * `conversations.id`. Opened from the Chat tab inbox (app/(tabs)/chat.tsx),
  * the archived list (app/chat/archived.tsx), a user's profile
  * (app/user/[id].tsx), new-message / create-group (which `router.replace`
- * here), and message notifications (app/notifications.tsx). The route is not
- * listed by name in app/_layout.tsx; expo-router picks it up from the file
- * system, and this screen hides the native header and draws its own.
+ * here), and message notifications (app/notifications.tsx). The route is
+ * registered by name in the signed-in-and-onboarded <Stack.Protected> block of app/_layout.tsx,
+ * and this screen hides the native header and draws its own.
  *
  * How it works:
  * - Loading: `get_conversation_info` RPC (group name/avatar/member count/my
@@ -93,8 +93,11 @@ const MEDIA_BUCKET = 'message-media';
  * - _base64 / _base64s: the picked photo(s) kept in memory so a failed image
  *   or gallery send can be retried without re-picking.
  * - _mimeType: the picked document's MIME type, kept for document retries.
+ * - _serverMessageId: set on a failed gallery whose `messages` row was
+ *   already created but whose photo rows were not. A retry then only adds
+ *   the missing photos instead of inserting a second, duplicate message.
  */
-type LocalMessage = MessageItem & { client_generated_id?: string | null; _base64?: string; _base64s?: string[]; _mimeType?: string | null };
+type LocalMessage = MessageItem & { client_generated_id?: string | null; _base64?: string; _base64s?: string[]; _mimeType?: string | null; _serverMessageId?: string };
 /** The other participant's profile in a 1:1 chat (from the profiles join on conversation_members). */
 type OtherUser = { id: string; username: string | null; full_name: string | null; avatar_url: string | null };
 /**
@@ -975,9 +978,13 @@ export default function ChatThread() {
     const tempId = retryOf?.id ?? `temp-${clientId}`;
     const captionText = retryOf ? retryOf.content : (caption || '');
     const galleryLayout = retryOf ? (retryOf.gallery_layout ?? 'collage') : (layout ?? 'collage');
+    // Finds this send's bubble. The realtime echo of the `messages` insert can
+    // swap the temp row for the server row (new id) before the photo rows
+    // are saved, so match on client_generated_id too, not only the temp id.
+    const isThisBubble = (m: LocalMessage) => m.id === tempId || m.client_generated_id === clientId;
 
     if (retryOf) {
-      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m)));
+      setMessages((prev) => prev.map((m) => (isThisBubble(m) ? { ...m, pending: true, failed: false } : m)));
     } else {
       // attachments carry local previews; _base64s keeps the data for retries.
       const temp: LocalMessage = {
@@ -1013,29 +1020,39 @@ export default function ChatThread() {
       );
 
       // The parent message row (no media_path itself; photos live in attachments).
-      const { data, error } = await supabase
-        .from('messages')
-        .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'gallery', gallery_layout: galleryLayout, content: captionText || null, client_generated_id: clientId })
-        .select()
-        .single();
+      // If an earlier attempt already created it (see _serverMessageId), re-read
+      // that row instead of inserting a duplicate. The app can't delete the
+      // orphan row instead: `messages` has no DELETE policy for clients.
+      const existingId = retryOf?._serverMessageId;
+      const { data, error } = existingId
+        ? await supabase.from('messages').select().eq('id', existingId).single()
+        : await supabase
+          .from('messages')
+          .insert({ conversation_id: id, sender_id: session.user.id, message_type: 'gallery', gallery_layout: galleryLayout, content: captionText || null, client_generated_id: clientId })
+          .select()
+          .single();
       if (error || !data) throw error ?? new Error('insert failed');
 
-      // One attachment row per photo, ordered by `position`.
+      // One attachment row per photo, ordered by `position`. On failure,
+      // remember the server row's id on the bubble so Retry reuses it.
       const { error: attError } = await supabase
         .from('message_attachments')
         .insert(paths.map((media_path, position) => ({ message_id: data.id, media_path, position })));
-      if (attError) throw attError;
+      if (attError) {
+        setMessages((prev) => prev.map((m) => (isThisBubble(m) ? { ...m, _serverMessageId: data.id } : m)));
+        throw attError;
+      }
 
       // Swap in the real row, keeping each attachment's local preview and
       // adding its storage path.
       setMessages((prev) => prev.map((m) => {
-        if (m.id !== tempId) return m;
+        if (!isThisBubble(m)) return m;
         const mergedAttachments = paths.map((media_path, i) => ({ ...(m.attachments?.[i] ?? {}), media_path }));
         return { ...m, ...data, pending: false, attachments: mergedAttachments };
       }));
       if (myStatus === 'request') setMyStatus('accepted');
     } catch {
-      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)));
+      setMessages((prev) => prev.map((m) => (isThisBubble(m) ? { ...m, pending: false, failed: true } : m)));
     }
   }
 

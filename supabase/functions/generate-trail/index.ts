@@ -79,17 +79,19 @@ Deno.serve(async (req) => {
       ? payload.genrePreference.trim().slice(0, 40)
       : null;
 
-  // --- 2. Auth + quota ------------------------------------------------------
-  const auth = await authorize(req, 'trail');
-  if (!auth.ok) return auth.response;
-
-  // The real vendor key, read from Edge Function secrets. This check runs after
-  // authorize(), so a missing key still consumes the caller's quota slot.
+  // The real vendor key, read from Edge Function secrets. Checked BEFORE
+  // authorize(), because authorize() consumes a quota slot and there is no
+  // refund path: checking afterwards would charge every caller for a request
+  // that can never succeed while the secret is missing.
   const apiKey = Deno.env.get('GROQ_API_KEY');
   if (!apiKey) {
     console.error('GROQ_API_KEY is not set — run: supabase secrets set GROQ_API_KEY=...');
     return fail('Trail generation is not configured. Please contact support.', 500);
   }
+
+  // --- 2. Auth + quota ------------------------------------------------------
+  const auth = await authorize(req, 'trail');
+  if (!auth.ok) return auth.response;
 
   // --- 3. Vendor call (prompt is byte-for-byte the original lib/ai.ts one) ---
   let res: Response;

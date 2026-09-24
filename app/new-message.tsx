@@ -25,6 +25,7 @@ import { useState, useCallback } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { profileSearchFilter } from '@/lib/profiles';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { Avatar } from '@/components/Avatar';
@@ -59,7 +60,10 @@ export default function NewMessageScreen() {
    * There is no debounce, so every keystroke sends a request.
    */
   const search = useCallback(async (q: string) => {
-    if (!session || q.trim().length < 2) {
+    // Sanitised filter string (see lib/profiles.ts); null means the query is
+    // too short once special characters are removed.
+    const filter = profileSearchFilter(q);
+    if (!session || !filter) {
       setResults([]);
       setSearchError(false);
       return;
@@ -70,7 +74,7 @@ export default function NewMessageScreen() {
       .from('profiles')
       .select('id, username, full_name, avatar_url')
       .neq('id', session.user.id)
-      .or(`username.ilike.%${q}%,full_name.ilike.%${q}%`)
+      .or(filter)
       .limit(20);
     if (error) {
       setSearchError(true);

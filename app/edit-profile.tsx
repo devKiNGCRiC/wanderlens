@@ -33,6 +33,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
 import { supabase } from '@/lib/supabase';
+import { toDateOnly, fromDateOnly } from '@/lib/dateOnly';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { CountryPicker } from '@/components/CountryPicker';
@@ -96,8 +97,8 @@ export default function EditProfile() {
   // Trip dates are stored as 'YYYY-MM-DD' strings; turn them into Date
   // objects for the DateField pickers.
   const [tripDestinations, setTripDestinations] = useState<string[]>(profile?.trip_destinations || []);
-  const [tripStartDate, setTripStartDate] = useState<Date | null>(profile?.trip_start_date ? new Date(profile.trip_start_date) : null);
-  const [tripEndDate, setTripEndDate] = useState<Date | null>(profile?.trip_end_date ? new Date(profile.trip_end_date) : null);
+  const [tripStartDate, setTripStartDate] = useState<Date | null>(profile?.trip_start_date ? fromDateOnly(profile.trip_start_date) : null);
+  const [tripEndDate, setTripEndDate] = useState<Date | null>(profile?.trip_end_date ? fromDateOnly(profile.trip_end_date) : null);
   const [saving, setSaving] = useState(false);
 
 
@@ -182,8 +183,8 @@ export default function EditProfile() {
       if (bannerImage) bannerUrl = await uploadProfileMedia(bannerImage.base64, `${session.user.id}/banner.jpg`);
 
       // Write every field in one update. Empty text becomes null so the DB
-      // doesn't store ''. Dates go out as 'YYYY-MM-DD' cut from toISOString()
-      // (UTC). RLS on profiles is what actually restricts this to the user's
+      // doesn't store ''. Dates go out as 'YYYY-MM-DD' for the local calendar
+      // day (lib/dateOnly.ts). RLS on profiles is what actually restricts this to the user's
       // own row; the .eq() just selects it.
       const { error } = await supabase
         .from('profiles')
@@ -200,8 +201,8 @@ export default function EditProfile() {
           avatar_url: avatarUrl,
           banner_url: bannerUrl,
           trip_destinations: tripDestinations.length > 0 ? tripDestinations : null,
-          trip_start_date: tripStartDate ? tripStartDate.toISOString().slice(0, 10) : null,
-          trip_end_date: tripEndDate ? tripEndDate.toISOString().slice(0, 10) : null,
+          trip_start_date: tripStartDate ? toDateOnly(tripStartDate) : null,
+          trip_end_date: tripEndDate ? toDateOnly(tripEndDate) : null,
         })
         .eq('id', session.user.id);
 

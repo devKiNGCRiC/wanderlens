@@ -143,7 +143,7 @@ export default function TrailGenerator() {
             <Text style={styles.myTrailsText}>My trails</Text>
           </Pressable>
         </View>
-        <Text style={styles.title}>Build today's trail</Text>
+        <Text style={styles.title}>Build today&apos;s trail</Text>
         <Text style={styles.subtitle}>Sequences real spots from your community into one outing.</Text>
 
         {/* Genre focus: a horizontally scrolling chip row. */}

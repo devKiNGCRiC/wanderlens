@@ -4,8 +4,8 @@
  * Purpose: lists the conversations the signed-in user has archived (hidden
  * from the main inbox) and lets them unarchive one or open it. It is opened
  * from the archive icon in the header of the Chat tab (app/(tabs)/chat.tsx).
- * The route is not listed by name in app/_layout.tsx; expo-router picks it up
- * from the file system, and it hides the native header itself via
+ * The route is registered by name in the signed-in-and-onboarded <Stack.Protected> block of app/_layout.tsx,
+ * and it hides the native header itself via
  * <Stack.Screen options={{ headerShown: false }} />.
  *
  * How it works:

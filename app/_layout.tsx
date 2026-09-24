@@ -139,6 +139,18 @@ function RootNavigator() {
         <Stack.Screen name="trail-generator" options={{ presentation: 'modal', title: 'AI Trail' }} />
         <Stack.Screen name="new-message" options={{ presentation: 'modal', title: 'New message' }} />
         <Stack.Screen name="create-group" options={{ presentation: 'modal', title: 'New group' }} />
+        {/* Full-screen pushed routes. They hide their own header from inside
+            the screen; they're listed here only so this guard covers them.
+            expo-router makes any route NOT listed in a Protected block
+            reachable regardless of auth state, and leaves it in history
+            after sign-out. */}
+        <Stack.Screen name="spot/[id]" />
+        <Stack.Screen name="user/[id]" />
+        <Stack.Screen name="chat/[id]" />
+        <Stack.Screen name="chat/archived" />
+        <Stack.Screen name="group/[id]" />
+        <Stack.Screen name="saved" />
+        <Stack.Screen name="notifications" />
       </Stack.Protected>
       {/* Guard 3: signed in but the profile's onboarded flag is still false.
           Only the onboarding flow is reachable. Once it sets onboarded and

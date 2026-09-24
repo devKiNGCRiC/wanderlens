@@ -23,7 +23,7 @@
  * - Deleted/anonymised accounts are filtered out of suggestion lists with
  *   excludeDeletedProfiles (lib/profiles.ts).
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, Image, Pressable, FlatList, StyleSheet, Alert } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -91,6 +91,11 @@ export default function ConnectScreen() {
   const [requests, setRequests] = useState<ConnectionRow[]>([]);
   const [connections, setConnections] = useState<ConnectionRow[]>([]);
   const [genreFilter, setGenreFilter] = useState<string | null>(null);
+  // Mirror of genreFilter for the focus reload, whose useCallback does not
+  // list genreFilter as a dependency. Reading the state there would see the
+  // value from when the callback was created and reload Discover unfiltered
+  // while the chip still showed the chosen genre. The ref is always current.
+  const genreRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   /**
@@ -192,7 +197,7 @@ export default function ConnectScreen() {
   useFocusEffect(useCallback(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([loadDiscover(genreFilter), loadTripMatches(), loadRequests(), loadConnections()]);
+      await Promise.all([loadDiscover(genreRef.current), loadTripMatches(), loadRequests(), loadConnections()]);
       setLoading(false);
     })();
   }, [session, profile?.trip_destinations, profile?.trip_start_date, profile?.trip_end_date]));
@@ -214,34 +219,45 @@ export default function ConnectScreen() {
   }
   /**
    * Withdraws a request the viewer sent: optimistically resets the person
-   * to 'none' in both lists, then deletes the row. The delete's result is
-   * not checked.
+   * to 'none' in both lists, then deletes the row. If the delete fails, both
+   * lists are reloaded from the server so the button shows the real status.
    */
   async function cancelRequest(connectionId: string, personId: string) {
     const patch = (p: Person) => (p.id === personId ? { ...p, connection_status: 'none', connection_id: null } : p);
     setPeople((prev) => prev.map(patch));
     setTripMatches((prev) => prev.map(patch));
-    await supabase.from('connections').delete().eq('id', connectionId);
+    const { error } = await supabase.from('connections').delete().eq('id', connectionId);
+    if (error) {
+      Alert.alert('Could not cancel request', 'Check your connection and try again.');
+      loadDiscover(genreRef.current); loadTripMatches();
+    }
   }
   /**
    * Accept (status -> 'accepted') or decline (delete the row) an incoming
    * request, then refetch every list, since the person's status shows in all
-   * of them. The refetches are fired without awaiting.
+   * of them. The refetches are fired without awaiting. They run even when the
+   * write fails, so the lists always show what the server actually holds.
    */
   async function respondToRequest(id: string, accept: boolean) {
-    if (accept) await supabase.from('connections').update({ status: 'accepted' }).eq('id', id);
-    else await supabase.from('connections').delete().eq('id', id);
-    loadRequests(); loadConnections(); loadDiscover(genreFilter); loadTripMatches();
+    const { error } = accept
+      ? await supabase.from('connections').update({ status: 'accepted' }).eq('id', id)
+      : await supabase.from('connections').delete().eq('id', id);
+    if (error) Alert.alert(accept ? 'Could not accept request' : 'Could not decline request', 'Check your connection and try again.');
+    loadRequests(); loadConnections(); loadDiscover(genreRef.current); loadTripMatches();
   }
   /** Confirms, then deletes an accepted connection and refetches the affected lists. */
   function removeConnection(id: string) {
     Alert.alert('Remove connection?', undefined, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: async () => { await supabase.from('connections').delete().eq('id', id); loadConnections(); loadDiscover(genreFilter); loadTripMatches(); } },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('connections').delete().eq('id', id);
+        if (error) Alert.alert('Could not remove connection', 'Check your connection and try again.');
+        loadConnections(); loadDiscover(genreRef.current); loadTripMatches();
+      } },
     ]);
   }
   /** Genre chip tap: store the choice and reload Discover with it (null = All). */
-  function applyGenreFilter(g: string | null) { setGenreFilter(g); loadDiscover(g); }
+  function applyGenreFilter(g: string | null) { genreRef.current = g; setGenreFilter(g); loadDiscover(g); }
 
   // Shared by Discover and Trip — same row shape, same connection actions.
   /**

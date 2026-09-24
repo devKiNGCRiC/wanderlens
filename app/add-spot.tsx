@@ -420,7 +420,7 @@ export default function AddSpot() {
         <Text style={styles.label}>Location</Text>
         <View style={styles.modeRow}>
           <Pressable onPress={() => switchMode('here')} style={[styles.modeChip, locationMode === 'here' && styles.chipSelected]}>
-            <Text style={[styles.chipText, locationMode === 'here' && styles.chipTextSelected]}>I'm here now</Text>
+            <Text style={[styles.chipText, locationMode === 'here' && styles.chipTextSelected]}>I&apos;m here now</Text>
           </Pressable>
           <Pressable onPress={() => switchMode('remote')} style={[styles.modeChip, locationMode === 'remote' && styles.chipSelected]}>
             <Text style={[styles.chipText, locationMode === 'remote' && styles.chipTextSelected]}>From another trip</Text>

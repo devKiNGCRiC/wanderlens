@@ -21,6 +21,7 @@ import { View, Text, TextInput, Pressable, FlatList, StyleSheet, ActivityIndicat
 import { useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import { profileSearchFilter } from '@/lib/profiles';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { Avatar } from '@/components/Avatar';
@@ -52,7 +53,10 @@ export default function CreateGroupScreen() {
    * clear the results instead. No debounce: each keystroke sends a request.
    */
   const search = useCallback(async (q: string) => {
-    if (!session || q.trim().length < 2) {
+    // Sanitised filter string (see lib/profiles.ts); null means the query is
+    // too short once special characters are removed.
+    const filter = profileSearchFilter(q);
+    if (!session || !filter) {
       setResults([]);
       setSearchError(false);
       return;
@@ -63,7 +67,7 @@ export default function CreateGroupScreen() {
       .from('profiles')
       .select('id, username, full_name, avatar_url')
       .neq('id', session.user.id)
-      .or(`username.ilike.%${q}%,full_name.ilike.%${q}%`)
+      .or(filter)
       .limit(20);
     if (error) {
       setSearchError(true);

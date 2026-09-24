@@ -20,6 +20,7 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { supabase } from '@/lib/supabase';
+import { toDateOnly } from '@/lib/dateOnly';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
@@ -93,7 +94,7 @@ export default function Onboarding() {
     // Required: user type, at least one genre, travel style, home city.
     // Country, places and the next-trip fields are optional.
     if (!userType || genres.length === 0 || !travelStyle || !homeCity) {
-      Alert.alert('Almost done', 'Please fill in every field before continuing.');
+      Alert.alert('Almost done', 'Please choose what kind of photographer you are, at least one interest, a travel style, and your home city.');
       return;
     }
     if (tripStartDate && tripEndDate && tripEndDate < tripStartDate) {
@@ -101,8 +102,9 @@ export default function Onboarding() {
       return;
     }
     // Single profiles update. Empty optional answers are stored as null rather
-    // than '' or []. Trip dates are sent as 'YYYY-MM-DD' strings, cut from
-    // toISOString() (which is in UTC). `session!` asserts non-null: this
+    // than '' or []. Trip dates are sent as 'YYYY-MM-DD' strings built from
+    // the local calendar day (lib/dateOnly.ts), not toISOString(), which
+    // would convert to UTC and can shift the date by one. `session!` asserts non-null: this
     // screen is only reachable while signed in.
     setSaving(true);
     const { error } = await supabase
@@ -111,8 +113,8 @@ export default function Onboarding() {
         user_type: userType, photography_genres: genres, place_interests: placeInterests,
         travel_style: travelStyle, home_city: homeCity, country: country || null, onboarded: true,
         trip_destinations: tripDestinations.length > 0 ? tripDestinations : null,
-        trip_start_date: tripStartDate ? tripStartDate.toISOString().slice(0, 10) : null,
-        trip_end_date: tripEndDate ? tripEndDate.toISOString().slice(0, 10) : null,
+        trip_start_date: tripStartDate ? toDateOnly(tripStartDate) : null,
+        trip_end_date: tripEndDate ? toDateOnly(tripEndDate) : null,
       })
       .eq('id', session!.user.id);
     setSaving(false);
@@ -141,6 +143,9 @@ export default function Onboarding() {
         <View style={styles.row}>
           {[...CORE_GENRES, ...(showMoreGenres ? MORE_GENRES : [])].map((g) => <Chip key={g} label={g} selected={genres.includes(g)} onPress={() => toggleGenre(g)} />)}
           {!showMoreGenres && <Chip label="More +" selected={false} onPress={() => setShowMoreGenres(true)} />}
+          {/* Custom genres the user typed in (not in either preset list), always
+              shown as selected; tapping one removes it. */}
+          {genres.filter((g) => ![...CORE_GENRES, ...MORE_GENRES].includes(g)).map((g) => <Chip key={g} label={g} selected onPress={() => toggleGenre(g)} />)}
         </View>
         <View style={styles.customRow}>
           <TextInput style={[styles.input, { flex: 1 }]} placeholder="Add your own genre" placeholderTextColor={theme.color.muted} value={customGenre} onChangeText={setCustomGenre} onSubmitEditing={addCustomGenre} />
@@ -152,6 +157,8 @@ export default function Onboarding() {
         <View style={styles.row}>
           {[...CORE_PLACES, ...(showMorePlaces ? MORE_PLACES : [])].map((p) => <Chip key={p} label={p} selected={placeInterests.includes(p)} onPress={() => togglePlace(p)} />)}
           {!showMorePlaces && <Chip label="More +" selected={false} onPress={() => setShowMorePlaces(true)} />}
+          {/* Custom place types, same pattern as custom genres above. */}
+          {placeInterests.filter((p) => ![...CORE_PLACES, ...MORE_PLACES].includes(p)).map((p) => <Chip key={p} label={p} selected onPress={() => togglePlace(p)} />)}
         </View>
         <View style={styles.customRow}>
           <TextInput style={[styles.input, { flex: 1 }]} placeholder="Add your own place type" placeholderTextColor={theme.color.muted} value={customPlace} onChangeText={setCustomPlace} onSubmitEditing={addCustomPlace} />

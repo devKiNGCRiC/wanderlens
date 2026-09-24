@@ -3,9 +3,9 @@
  *
  * Purpose: shows every spot the signed-in user has saved (bookmarked) as a
  * 3-column grid of tilted polaroid cards. Opened from the Profile tab
- * (`router.push('/saved')` in app/(tabs)/profile.tsx). It has no explicit
- * `<Stack.Screen>` entry in app/_layout.tsx, so expo-router registers it with
- * default options; the screen hides the header itself below.
+ * (`router.push('/saved')` in app/(tabs)/profile.tsx). Registered by name in
+ * the signed-in-and-onboarded `<Stack.Protected>` block of app/_layout.tsx;
+ * the screen hides the header itself below.
  *
  * How it works:
  * - Reads through the `get_saved_spots` Supabase RPC (a Postgres function

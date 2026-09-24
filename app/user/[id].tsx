@@ -7,8 +7,8 @@
  * set, a Message button, and a polaroid grid of the spots they've posted.
  * This is the "connection layer" pillar of Wanderlens: connections are
  * mutual and both-sides-agreed, so there is no follower count here by design
- * (see CLAUDE.md). This route is not listed by name in app/_layout.tsx;
- * expo-router discovers it from the file system.
+ * (see CLAUDE.md). This route is
+ * registered by name in the signed-in-and-onboarded <Stack.Protected> block of app/_layout.tsx.
  *
  * How it works:
  * - If the id is your own, load() redirects to your own Profile tab instead.
@@ -74,6 +74,8 @@ export default function PublicProfile() {
   const [conn, setConn] = useState<ConnState>({ id: null, status: 'none', isRequester: false });
   // UI state: loading, full-screen avatar viewer, message button spinner, block status and the two action sheets.
   const [loading, setLoading] = useState(true);
+  // True when the profile itself could not be loaded (offline, or no such user).
+  const [loadError, setLoadError] = useState(false);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [messaging, setMessaging] = useState(false);
   const [myBlocked, setMyBlocked] = useState(false);
@@ -91,7 +93,14 @@ export default function PublicProfile() {
       router.replace('/(tabs)/profile');
       return;
     }
-    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', id).single();
+    const { data: profileData, error: profileError } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+    // Without this check a failed or empty lookup left the spinner up forever.
+    if (profileError || !profileData) {
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
+    setLoadError(false);
     setProfile(profileData as PublicProfile);
     const { data: spotsData } = await supabase.from('spots').select('id, photo_url, genre').eq('created_by', id).order('created_at', { ascending: false });
     setSpots((spotsData as Spot[]) ?? []);
@@ -123,23 +132,33 @@ export default function PublicProfile() {
   /** Withdraws the viewer's own pending request by deleting the row. */
   async function cancelRequest() {
     if (!conn.id) return;
-    await supabase.from('connections').delete().eq('id', conn.id);
+    const { error } = await supabase.from('connections').delete().eq('id', conn.id);
+    if (error) { showActionError(); return; }
     setConn({ id: null, status: 'none', isRequester: false });
   }
   /**
    * Responds to an incoming request: accept flips the row to 'accepted',
-   * decline deletes it.
+   * decline deletes it. The button only changes once the write succeeds.
    */
   async function respond(accept: boolean) {
     if (!conn.id) return;
-    if (accept) { await supabase.from('connections').update({ status: 'accepted' }).eq('id', conn.id); setConn((c) => ({ ...c, status: 'accepted' })); }
-    else { await supabase.from('connections').delete().eq('id', conn.id); setConn({ id: null, status: 'none', isRequester: false }); }
+    const { error } = accept
+      ? await supabase.from('connections').update({ status: 'accepted' }).eq('id', conn.id)
+      : await supabase.from('connections').delete().eq('id', conn.id);
+    if (error) { showActionError(); return; }
+    if (accept) setConn((c) => ({ ...c, status: 'accepted' }));
+    else setConn({ id: null, status: 'none', isRequester: false });
   }
   /** Removes an accepted connection by deleting the row. */
   async function removeConnection() {
     if (!conn.id) return;
-    await supabase.from('connections').delete().eq('id', conn.id);
+    const { error } = await supabase.from('connections').delete().eq('id', conn.id);
+    if (error) { showActionError(); return; }
     setConn({ id: null, status: 'none', isRequester: false });
+  }
+  /** Shared alert for a connection/block action that the server rejected. */
+  function showActionError() {
+    Alert.alert('Something went wrong', 'Check your connection and try again.');
   }
   /**
    * Opens a one-to-one chat with this user. The RPC returns the existing direct
@@ -160,23 +179,46 @@ export default function PublicProfile() {
   function toggleBlock() {
     if (!session || !id) return;
     if (myBlocked) {
-      supabase.from('blocked_users').delete().eq('blocker_id', session.user.id).eq('blocked_id', id).then(() => setMyBlocked(false));
+      supabase.from('blocked_users').delete().eq('blocker_id', session.user.id).eq('blocked_id', id)
+        .then(({ error }) => { if (error) showActionError(); else setMyBlocked(false); });
       return;
     }
     Alert.alert(`Block ${profile?.username || profile?.full_name || 'this person'}?`, "They won't be able to message you.", [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Block', style: 'destructive', onPress: async () => { await supabase.from('blocked_users').insert({ blocker_id: session.user.id, blocked_id: id }); setMyBlocked(true); } },
+      { text: 'Block', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('blocked_users').insert({ blocker_id: session.user.id, blocked_id: id });
+        if (error) showActionError(); else setMyBlocked(true);
+      } },
     ]);
   }
-  /** Files a report about this user via the report_content RPC, then thanks the viewer. */
+  /** Files a report about this user via the report_content RPC; thanks the viewer only if it went through. */
   async function submitReport(reason: string) {
     if (!id) return;
-    await supabase.rpc('report_content', { p_target_type: 'user', p_target_id: id, p_reason: reason });
-    Alert.alert('Reported', "Thanks — we'll review this.");
+    const { error } = await supabase.rpc('report_content', { p_target_type: 'user', p_target_id: id, p_reason: reason });
+    if (error) Alert.alert('Report not sent', 'Check your connection and try again.');
+    else Alert.alert('Reported', "Thanks — we'll review this.");
   }
   /** Opens the "..." menu (Block / Report). */
   function openMenu() {
     setMenuVisible(true);
+  }
+
+  // Error state: the profile could not be loaded. Offers Retry and a way back.
+  if (loadError) {
+    return (
+      <ScreenBackground>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.errorWrap}>
+          <Text style={styles.errorText}>Couldn&apos;t load this profile. The account may no longer exist, or you might be offline.</Text>
+          <Pressable onPress={() => { setLoading(true); load(); }} style={styles.retryBtn} accessibilityRole="button">
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+          <Pressable onPress={() => router.back()} style={styles.errorBackBtn} accessibilityRole="button">
+            <Text style={styles.errorBackText}>Go back</Text>
+          </Pressable>
+        </View>
+      </ScreenBackground>
+    );
   }
 
   // Loading state: gold spinner while the profile loads.
@@ -323,6 +365,13 @@ export default function PublicProfile() {
 const styles = StyleSheet.create({
   // Loading, banner and floating buttons
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.dusk },
+  // Load-error state (matches the Retry pattern in app/(tabs)/chat.tsx)
+  errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  errorText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', paddingHorizontal: 40 },
+  retryBtn: { marginTop: 16, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, paddingVertical: 12, paddingHorizontal: 24 },
+  retryText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.gold },
+  errorBackBtn: { marginTop: 8, paddingVertical: 12, paddingHorizontal: 24 },
+  errorBackText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted },
   banner: { height: 140, backgroundColor: theme.color.surface },
   backBtn: { position: 'absolute', left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   menuBtn: { position: 'absolute', right: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },

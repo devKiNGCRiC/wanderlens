@@ -4,9 +4,9 @@
  * Purpose: lists the signed-in user's notifications (connection requests and
  * accepts, likes, comments, replies, shared spots, message requests) and lets
  * them jump to the related screen, delete one, or clear all. Opened from the
- * bell in the Feed tab header (app/(tabs)/index.tsx). It has no explicit
- * `<Stack.Screen>` entry in app/_layout.tsx, so expo-router registers it with
- * default options; the screen hides the header itself.
+ * bell in the Feed tab header (app/(tabs)/index.tsx). Registered by name in
+ * the signed-in-and-onboarded `<Stack.Protected>` block of app/_layout.tsx;
+ * the screen hides the header itself.
  *
  * How it works:
  * - Notification rows are created server-side by Postgres triggers (see

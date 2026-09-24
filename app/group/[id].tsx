@@ -6,8 +6,8 @@
  * shared in the chat, and per-user chat settings (pin, mute, favorite,
  * clear). Opened from the group chat screen (app/chat/[id].tsx) by tapping
  * the header or choosing "Group info" from its menu. `id` is the
- * conversation id. This route is not listed by name in app/_layout.tsx;
- * expo-router discovers it from the file system (app/group folder).
+ * conversation id. This route is
+ * registered by name in the signed-in-and-onboarded <Stack.Protected> block of app/_layout.tsx.
  *
  * How it works:
  * - load() fires five Supabase requests in parallel: the group's info
@@ -44,6 +44,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import { supabase } from '@/lib/supabase';
+import { profileSearchFilter } from '@/lib/profiles';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
@@ -181,14 +182,16 @@ export default function GroupInfoScreen() {
    * excludes the current user, and filters out people already in the group.
    */
   const search = useCallback(async (q: string) => {
-    if (!session || q.trim().length < 2) { setResults([]); return; }
+    // Sanitised filter string (see lib/profiles.ts); null = too short to search.
+    const filter = profileSearchFilter(q);
+    if (!session || !filter) { setResults([]); return; }
     setSearching(true);
     const existingIds = new Set(members.map((m) => m.user_id));
     const { data } = await supabase
       .from('profiles')
       .select('id, username, full_name, avatar_url')
       .neq('id', session.user.id)
-      .or(`username.ilike.%${q}%,full_name.ilike.%${q}%`)
+      .or(filter)
       .limit(20);
     setResults(((data as Person[]) ?? []).filter((p) => !existingIds.has(p.id)));
     setSearching(false);

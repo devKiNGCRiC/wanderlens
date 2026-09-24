@@ -7,8 +7,8 @@
  * weather), like/comment/share/send/save/map actions, the viewer's private
  * notes for this spot, and a threaded (two-level) comment section. Opened
  * from the feed, map, profiles, saved lists and chat spot cards via
- * router.push('/spot/[id]'). This route is not listed by name in
- * app/_layout.tsx; expo-router discovers it from the file system.
+ * router.push('/spot/[id]'). This route is
+ * registered by name in the signed-in-and-onboarded <Stack.Protected> block of app/_layout.tsx.
  *
  * How it works:
  * - load() reads the spot through the get_spot RPC (a Postgres function the
@@ -101,6 +101,9 @@ export default function SpotDetail() {
   const [replyingTo, setReplyingTo] = useState<{ id: string; handle: string } | null>(null);
   // Loading flag and full-screen photo viewer.
   const [loading, setLoading] = useState(true);
+  // True when the spot itself could not be loaded (network failure, or the
+  // spot was deleted). Shows a message with Retry instead of the skeleton.
+  const [loadError, setLoadError] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [styledPhotoUrl, setStyledPhotoUrl] = useState<string | null>(null);
   // Live-capture metadata (set when the photo was taken in-app with location/weather). All null for ordinary uploads.
@@ -117,8 +120,9 @@ export default function SpotDetail() {
 
   /**
    * Fetches everything the screen shows. Called on focus and after comment
-   * changes. The first two requests run in parallel; the rest run one after
-   * another.
+   * changes. The spot itself is fetched first; if that fails the screen
+   * switches to its error state. The remaining requests (likes, per-user
+   * state, comments) are independent of each other and run in parallel.
    */
   const load = useCallback(async () => {
     if (!id) return;
@@ -126,33 +130,47 @@ export default function SpotDetail() {
     // return columns blind, styled_photo_url and the geo-tag capture
     // columns are fetched with a plain (RLS-covered, spots are public-read)
     // table select instead.
-    const [{ data: spotData }, { data: extraRow }] = await Promise.all([
+    const [{ data: spotData, error: spotError }, { data: extraRow }] = await Promise.all([
       supabase.rpc('get_spot', { spot_id: id }).single(),
       supabase.from('spots')
         .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name, capture_address')
         .eq('id', id).maybeSingle(),
     ]);
+    // .single() returns an error when no row matches, so a deleted spot and
+    // a network failure both land here. Without this check the skeleton
+    // would stay on screen forever.
+    if (spotError || !spotData) {
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
+    setLoadError(false);
     setSpot(spotData as SpotDetail);
     setStyledPhotoUrl(extraRow?.styled_photo_url ?? null);
     setGeoTag(extraRow ?? null);
 
-    // Total like count: a head-only count query, so no rows are downloaded.
-    const { count } = await supabase.from('spot_likes').select('*', { count: 'exact', head: true }).eq('spot_id', id);
-    setLikeCount(count ?? 0);
-
+    // Everything below is independent, so fire it all at once (house
+    // pattern, see .claude/rules/react-native.md) instead of one by one.
+    const tasks: PromiseLike<unknown>[] = [
+      // Total like count: a head-only count query, so no rows are downloaded.
+      supabase.from('spot_likes').select('*', { count: 'exact', head: true }).eq('spot_id', id)
+        .then(({ count }) => setLikeCount(count ?? 0)),
+      // Comments with author info and like counts, flat; nested later by groupComments().
+      supabase.rpc('get_spot_comments', { spot_id_param: id })
+        .then(({ data: commentData }) => setComments((commentData as CommentRow[]) ?? [])),
+    ];
     // Per-user state (liked, saved, my notes) only makes sense when signed in.
     if (session) {
-      const { data: likeRow } = await supabase.from('spot_likes').select('*').eq('spot_id', id).eq('user_id', session.user.id).maybeSingle();
-      setLiked(!!likeRow);
-      const { data: savedRow } = await supabase.from('saved_spots').select('*').eq('spot_id', id).eq('user_id', session.user.id).maybeSingle();
-      setSaved(!!savedRow);
-      const { data: noteRows } = await supabase.from('notes').select('id, title').eq('spot_id', id).eq('user_id', session.user.id).order('created_at', { ascending: false });
-      setMyNotes(noteRows ?? []);
+      tasks.push(
+        supabase.from('spot_likes').select('spot_id').eq('spot_id', id).eq('user_id', session.user.id).maybeSingle()
+          .then(({ data: likeRow }) => setLiked(!!likeRow)),
+        supabase.from('saved_spots').select('spot_id').eq('spot_id', id).eq('user_id', session.user.id).maybeSingle()
+          .then(({ data: savedRow }) => setSaved(!!savedRow)),
+        supabase.from('notes').select('id, title').eq('spot_id', id).eq('user_id', session.user.id).order('created_at', { ascending: false })
+          .then(({ data: noteRows }) => setMyNotes(noteRows ?? [])),
+      );
     }
-
-    // Comments with author info and like counts, flat; nested later by groupComments().
-    const { data: commentData } = await supabase.rpc('get_spot_comments', { spot_id_param: id });
-    setComments((commentData as CommentRow[]) ?? []);
+    await Promise.all(tasks);
     setLoading(false);
   }, [id, session]);
 
@@ -161,28 +179,29 @@ export default function SpotDetail() {
 
   /**
    * Likes or unlikes the spot by inserting/deleting the viewer's spot_likes row,
-   * then updates the heart and count locally without refetching.
+   * then updates the heart and count locally without refetching. The UI
+   * only changes once the write has succeeded.
    */
   async function toggleLike() {
     if (!session || !spot) return;
     if (liked) {
-      await supabase.from('spot_likes').delete().eq('spot_id', spot.id).eq('user_id', session.user.id);
-      setLiked(false); setLikeCount((c) => c - 1);
+      const { error } = await supabase.from('spot_likes').delete().eq('spot_id', spot.id).eq('user_id', session.user.id);
+      if (!error) { setLiked(false); setLikeCount((c) => c - 1); }
     } else {
-      await supabase.from('spot_likes').insert({ spot_id: spot.id, user_id: session.user.id });
-      setLiked(true); setLikeCount((c) => c + 1);
+      const { error } = await supabase.from('spot_likes').insert({ spot_id: spot.id, user_id: session.user.id });
+      if (!error) { setLiked(true); setLikeCount((c) => c + 1); }
     }
   }
 
-  /** Saves or unsaves the spot for the viewer via the saved_spots table. */
+  /** Saves or unsaves the spot for the viewer via the saved_spots table; the icon changes only on success. */
   async function toggleSave() {
     if (!session || !spot) return;
     if (saved) {
-      await supabase.from('saved_spots').delete().eq('spot_id', spot.id).eq('user_id', session.user.id);
-      setSaved(false);
+      const { error } = await supabase.from('saved_spots').delete().eq('spot_id', spot.id).eq('user_id', session.user.id);
+      if (!error) setSaved(false);
     } else {
-      await supabase.from('saved_spots').insert({ spot_id: spot.id, user_id: session.user.id });
-      setSaved(true);
+      const { error } = await supabase.from('saved_spots').insert({ spot_id: spot.id, user_id: session.user.id });
+      if (!error) setSaved(true);
     }
   }
 
@@ -274,8 +293,31 @@ export default function SpotDetail() {
     if (!spot) return;
     Alert.alert('Delete this spot?', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => { await supabase.from('spots').delete().eq('id', spot.id); router.back(); } },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        // Only leave the screen once the delete has actually gone through.
+        const { error } = await supabase.from('spots').delete().eq('id', spot.id);
+        if (error) Alert.alert('Could not delete spot', 'Check your connection and try again.');
+        else router.back();
+      } },
     ]);
+  }
+
+  // Error state: the spot could not be loaded. Offers Retry and a way back.
+  if (loadError) {
+    return (
+      <ScreenBackground>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.center}>
+          <Text style={styles.errorText}>Couldn&apos;t load this spot. It may have been deleted, or you might be offline.</Text>
+          <Pressable onPress={() => { setLoading(true); load(); }} style={styles.retryBtn} accessibilityRole="button">
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+          <Pressable onPress={() => router.back()} style={styles.errorBackBtn} accessibilityRole="button">
+            <Text style={styles.errorBackText}>Go back</Text>
+          </Pressable>
+        </View>
+      </ScreenBackground>
+    );
   }
 
   // Loading state: the skeleton placeholder until the spot has loaded.
@@ -524,6 +566,12 @@ export default function SpotDetail() {
 // Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // Load-error state (matches the Retry pattern in app/(tabs)/chat.tsx)
+  errorText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', paddingHorizontal: 40 },
+  retryBtn: { marginTop: 16, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, paddingVertical: 12, paddingHorizontal: 24 },
+  retryText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.gold },
+  errorBackBtn: { marginTop: 8, paddingVertical: 12, paddingHorizontal: 24 },
+  errorBackText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted },
   // Hero and creator
   heroImage: { width: '100%', height: 300 },
   backBtn: { position: 'absolute', left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },

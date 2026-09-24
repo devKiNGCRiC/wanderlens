@@ -27,7 +27,7 @@
  * plain useEffect would only fetch once; useFocusEffect re-runs each time the
  * tab comes back into view, so likes/saves made elsewhere show up here.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { View, Text, Image, Pressable, FlatList, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -101,6 +101,12 @@ export default function FeedScreen() {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [genreFilter, setGenreFilter] = useState<string | null>(null);
   const [timeFilter, setTimeFilter] = useState<string | null>(null);
+  // Mirror of the active filters for the focus reload below. That callback
+  // is memoised on [session] only, so reading genreFilter/timeFilter state
+  // there would see the values from when it was created (the initial nulls)
+  // and reload the unfiltered feed while the badge still showed filters.
+  // A ref always holds the latest value without re-creating the callback.
+  const filtersRef = useRef<{ genre: string | null; time: string | null }>({ genre: null, time: null });
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -125,7 +131,7 @@ export default function FeedScreen() {
         setLoading(true);
         // Batch of independent requests to run concurrently (house pattern,
         // see .claude/rules/react-native.md), starting with the feed itself.
-        const tasks: PromiseLike<any>[] = [loadFeed(genreFilter, timeFilter)];
+        const tasks: PromiseLike<any>[] = [loadFeed(filtersRef.current.genre, filtersRef.current.time)];
         // The signed-in user's liked and saved spot ids, so the heart and
         // bookmark icons render in the right state.
         if (session) {
@@ -158,28 +164,38 @@ export default function FeedScreen() {
   );
 
   /**
-   * Called by FilterSheet's Apply button. Stores the new filters and
-   * reloads the feed with them straight away (the values are passed in
-   * directly because the state updates above haven't applied yet).
+   * Called by FilterSheet's Apply button. Stores the new filters (in state
+   * for the badge, in filtersRef for later focus reloads) and reloads the
+   * feed with them straight away (the values are passed in directly because
+   * the state updates above haven't applied yet).
    */
   function applyFilters(genre: string | null, time: string | null) {
+    filtersRef.current = { genre, time };
     setGenreFilter(genre); setTimeFilter(time); loadFeed(genre, time);
   }
 
   /**
    * Likes or unlikes a post optimistically: flips the heart and adjusts the
    * like count in local state first, then writes to the spot_likes table.
-   * The write's result is not checked, so a failed request is not rolled back.
+   * If the write fails, the same flip is applied again to undo it, so the
+   * screen never shows a like that didn't save.
    */
   async function toggleLike(post: FeedPost) {
     if (!session) return;
     const isLiked = likedIds.has(post.id);
-    // Copy the Set before changing it: React only re-renders when state is
-    // replaced with a new object, not mutated in place.
-    setLikedIds((prev) => { const next = new Set(prev); isLiked ? next.delete(post.id) : next.add(post.id); return next; });
-    setFeed((prev) => prev.map((p) => p.id === post.id ? { ...p, like_count: p.like_count + (isLiked ? -1 : 1) } : p));
-    if (isLiked) await supabase.from('spot_likes').delete().eq('spot_id', post.id).eq('user_id', session.user.id);
-    else await supabase.from('spot_likes').insert({ spot_id: post.id, user_id: session.user.id });
+    // Flips the heart and count in the given direction. Copy the Set before
+    // changing it: React only re-renders when state is replaced with a new
+    // object, not mutated in place.
+    const apply = (liked: boolean) => {
+      setLikedIds((prev) => { const next = new Set(prev); if (liked) next.add(post.id); else next.delete(post.id); return next; });
+      setFeed((prev) => prev.map((p) => p.id === post.id ? { ...p, like_count: p.like_count + (liked ? 1 : -1) } : p));
+    };
+    apply(!isLiked);
+    const { error } = isLiked
+      ? await supabase.from('spot_likes').delete().eq('spot_id', post.id).eq('user_id', session.user.id)
+      : await supabase.from('spot_likes').insert({ spot_id: post.id, user_id: session.user.id });
+    // Roll back to the original state if the database rejected the write.
+    if (error) apply(isLiked);
   }
 
   /**
@@ -189,9 +205,13 @@ export default function FeedScreen() {
   async function toggleSave(spotId: string) {
     if (!session) return;
     const isSaved = savedIds.has(spotId);
-    setSavedIds((prev) => { const next = new Set(prev); isSaved ? next.delete(spotId) : next.add(spotId); return next; });
-    if (isSaved) await supabase.from('saved_spots').delete().eq('spot_id', spotId).eq('user_id', session.user.id);
-    else await supabase.from('saved_spots').insert({ spot_id: spotId, user_id: session.user.id });
+    const apply = (saved: boolean) =>
+      setSavedIds((prev) => { const next = new Set(prev); if (saved) next.add(spotId); else next.delete(spotId); return next; });
+    apply(!isSaved);
+    const { error } = isSaved
+      ? await supabase.from('saved_spots').delete().eq('spot_id', spotId).eq('user_id', session.user.id)
+      : await supabase.from('saved_spots').insert({ spot_id: spotId, user_id: session.user.id });
+    if (error) apply(isSaved);
   }
 
   // Number shown on the Filters button badge (0, 1 or 2 active filters).
