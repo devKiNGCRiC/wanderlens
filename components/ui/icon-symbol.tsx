@@ -1,11 +1,30 @@
 // Fallback for using MaterialIcons on Android and web.
 
+/**
+ * IconSymbol (Android and web version).
+ *
+ * Purpose: a leftover from the `create-expo-app` starter template. Its only
+ * importer is components/ui/collapsible.tsx, another unused template file;
+ * nothing in app/ uses it. The app's own screens use `@expo/vector-icons`
+ * directly.
+ *
+ * How it works:
+ * - Metro picks a file by platform suffix: on iOS it loads
+ *   icon-symbol.ios.tsx (native SF Symbols); everywhere else it loads this
+ *   file, which draws a Material Icon instead.
+ * - Callers always pass an SF Symbol name; `MAPPING` translates it to the
+ *   matching Material Icons name. A name missing from MAPPING is a type error,
+ *   because `IconSymbolName` is derived from MAPPING's keys.
+ * - `weight` is accepted for API parity with iOS but ignored here.
+ */
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { SymbolWeight, SymbolViewProps } from 'expo-symbols';
 import { ComponentProps } from 'react';
 import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
 
+/** SF Symbol name -> Material Icons name. */
 type IconMapping = Record<SymbolViewProps['name'], ComponentProps<typeof MaterialIcons>['name']>;
+/** Only the SF Symbol names that have a mapping below are allowed. */
 type IconSymbolName = keyof typeof MAPPING;
 
 /**

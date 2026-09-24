@@ -1,3 +1,13 @@
+/**
+ * Static country list for the country picker.
+ *
+ * **Purpose**: the options shown by components/CountryPicker.tsx, with flags
+ * rendered on profile screens (app/(tabs)/profile.tsx, app/user/[id].tsx).
+ * Each entry pairs an ISO 3166-1 alpha-2 code with a display name.
+ *
+ * The list is hand-curated, not every country in the world, and is ordered
+ * loosely by region with India first rather than alphabetically.
+ */
 export const COUNTRIES = [
   { code: 'IN', name: 'India' }, { code: 'US', name: 'United States' }, { code: 'GB', name: 'United Kingdom' },
   { code: 'CA', name: 'Canada' }, { code: 'AU', name: 'Australia' }, { code: 'NZ', name: 'New Zealand' },
@@ -28,6 +38,15 @@ export const COUNTRIES = [
   { code: 'KZ', name: 'Kazakhstan' }, { code: 'UZ', name: 'Uzbekistan' },
 ];
 
+/**
+ * Converts a two-letter country code (e.g. "IN") into its flag emoji.
+ *
+ * Flag emoji are made of two "regional indicator" Unicode characters, one per
+ * letter. 127397 is the offset from an ASCII capital letter ('A' = 65) to the
+ * matching regional indicator (U+1F1E6 = 127462), so each letter is shifted by it.
+ * @param code ISO alpha-2 code, any case.
+ * @returns The flag emoji string; how it looks depends on the device's emoji font.
+ */
 export function flagEmoji(code: string) {
   return code.toUpperCase().replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }

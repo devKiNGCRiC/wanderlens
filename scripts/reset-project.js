@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 
 /**
+ * Note: this is the stock Expo template script (from create-expo-app), not
+ * Wanderlens code. Running it (`npm run reset-project`) would move or DELETE the
+ * app, components, hooks, constants, and scripts folders, i.e. the whole app.
+ * Do not run it on this project. The original template comment follows.
+ */
+/**
  * This script is used to reset the project to a blank state.
  * It deletes or moves the /app, /components, /hooks, /scripts, and /constants directories to /app-example based on user input and creates a new /app directory with an index.tsx and _layout.tsx file.
  * You can remove the `reset-project` script from package.json and safely delete this file after running it.
@@ -10,12 +16,14 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 
+// Folders the reset moves (or deletes) and where they go.
 const root = process.cwd();
 const oldDirs = ["app", "components", "hooks", "constants", "scripts"];
 const exampleDir = "app-example";
 const newAppDir = "app";
 const exampleDirPath = path.join(root, exampleDir);
 
+// Starter file contents written into the fresh app folder.
 const indexContent = `import { Text, View } from "react-native";
 
 export default function Index() {
@@ -40,11 +48,17 @@ export default function RootLayout() {
 }
 `;
 
+// Terminal prompt used to ask the user whether to keep or delete the old folders.
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
 
+/**
+ * Moves the old folders into app-example (answer "y") or deletes them (answer "n"),
+ * then writes a blank app/index.tsx and app/_layout.tsx.
+ * @param userInput "y" or "n", already normalised by the prompt handler below.
+ */
 const moveDirectories = async (userInput) => {
   try {
     if (userInput === "y") {
@@ -98,6 +112,7 @@ const moveDirectories = async (userInput) => {
   }
 };
 
+// Ask once; an empty answer defaults to "y" (keep the old files).
 rl.question(
   "Do you want to move existing files to /app-example instead of deleting them? (Y/n): ",
   (answer) => {

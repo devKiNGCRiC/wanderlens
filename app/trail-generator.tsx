@@ -1,3 +1,29 @@
+/**
+ * Route: /trail-generator, "AI Trail" modal (the Photo-Trail Generator).
+ *
+ * Purpose: builds a single photo outing by having an LLM pick and order
+ * real community spots near the user, each with a one-line tip. This is the
+ * app's itinerary feature and part of the "lightweight AI grounded in the
+ * app's own data" pillar: the AI only sequences spots that already exist, it
+ * never invents locations. Opened from the Map tab's trail FAB; registered
+ * as a modal inside the fully-onboarded `<Stack.Protected>` guard in
+ * app/_layout.tsx.
+ *
+ * How it works:
+ * - The user picks a genre focus and a stop count (3 to 6).
+ * - On "Generate trail": gets the device location (useUserLocation), calls
+ *   the `nearby_spots` Supabase RPC (a Postgres function called over the
+ *   API) for spots within 50 km, then sends them to `generateTrail`
+ *   (lib/ai.ts), which calls the `generate-trail` Edge Function (Groq).
+ * - The AI's answer is only ids + tips; each id is matched back to the spot
+ *   rows fetched from the RPC, and any id that doesn't match is dropped.
+ * - "Save this trail" inserts the result into the `trails` table; saved
+ *   trails are listed on /my-trails.
+ * - Each stop card links to the spot detail screen, /spot/[id].
+ *
+ * Why an Edge Function: the AI vendor key stays server-side and calls are
+ * rate-limited per user (see .claude/rules/security.md).
+ */
 import { useState } from 'react';
 import { View, Text, Pressable, ScrollView, Image, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
@@ -10,16 +36,26 @@ import { ScreenBackground } from '@/components/ScreenBackground';
 import { useUserLocation } from '@/hooks/useUserLocation';
 import { useAuth } from '@/context/AuthProvider';
 
+// Genre focus chips. 'Any' is sent to the AI as null (no genre preference).
 const GENRES = ['Any', 'Street', 'Landscape', 'Portrait', 'Astro', 'Wildlife', 'Architecture', 'Travel'];
 
+/** One row returned by the `nearby_spots` RPC (only the fields this screen uses). */
 type Spot = { id: string; title: string; genre: string | null; best_time: string | null; time_of_day: string | null; photo_url: string | null; lat: number; lng: number; location_label: string | null };
+/** A spot chosen for the trail, plus the AI's one-sentence tip for that stop. */
 type TrailStop = Spot & { tip: string };
 
+/**
+ * The trail generator screen. Holds the options, the generated trail, and
+ * save status in local state; nothing is persisted until the user taps Save.
+ */
 export default function TrailGenerator() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // refresh() asks for location permission and returns { lat, lng }, or null if denied.
   const { refresh } = useUserLocation();
   const { session } = useAuth();
+  // Options, spinners, the id of the saved `trails` row (null until saved),
+  // and the generated trail itself.
   const [genre, setGenre] = useState('Any');
   const [stopCount, setStopCount] = useState(4);
   const [loading, setLoading] = useState(false);
@@ -27,6 +63,11 @@ export default function TrailGenerator() {
   const [savedId, setSavedId] = useState<string | null>(null);
   const [trail, setTrail] = useState<{ stops: TrailStop[]; summary: string } | null>(null);
 
+  /**
+   * Generates a new trail: location, then nearby spots, then the AI call.
+   * Clears any previous trail and saved state first. Shows an alert when
+   * location is denied, when there are no nearby spots, or when the AI call fails.
+   */
   async function handleGenerate() {
     setLoading(true);
     setTrail(null);
@@ -35,24 +76,37 @@ export default function TrailGenerator() {
       const loc = await refresh();
       if (!loc) { Alert.alert('Location needed', 'Enable location to generate a trail.'); return; }
 
+      // Fetch real community spots within 50 km of the user. The trail can
+      // only ever contain spots from this list.
       const { data, error } = await supabase.rpc('nearby_spots', { lat: loc.lat, long: loc.lng, radius_km: 50 });
+      // An RPC error and an empty result are both shown as "not enough spots".
       if (error || !data || data.length === 0) {
         Alert.alert('Not enough spots yet', 'There are no community spots near you yet to build a trail from.');
         return;
       }
       const spots = data as Spot[];
       const result = await generateTrail(spots, genre === 'Any' ? null : genre, stopCount);
+      // Rebuild each stop from the real spot row with the matching id, so the
+      // UI never shows AI-written titles or photos; ids with no match are
+      // filtered out. The AI's order is kept.
       const stops: TrailStop[] = result.stops
         .map((s) => { const match = spots.find((sp) => sp.id === s.id); return match ? { ...match, tip: s.tip } : null; })
         .filter(Boolean) as TrailStop[];
       setTrail({ stops, summary: result.summary });
     } catch (err: any) {
+      // lib/ai.ts turns Edge Function errors (including rate limits) into a readable sentence.
       Alert.alert('Could not generate trail', err.message ?? 'Please try again.');
     } finally {
       setLoading(false);
     }
   }
 
+  /**
+   * Saves the current trail to the `trails` table. The stops (spot fields +
+   * tip) are stored as a JSON value on the row, so /my-trails can show them
+   * without re-querying spots. `.select('id').single()` returns the new row's
+   * id, which marks the trail as saved and disables the button.
+   */
   async function handleSave() {
     if (!trail || !session) return;
     setSaving(true);
@@ -73,10 +127,14 @@ export default function TrailGenerator() {
     }
   }
 
+  // Layout: header, options (genre, stop count), Generate button, and the
+  // generated trail with its Save button once available.
   return (
     <ScreenBackground>
+      {/* Hide the native modal header; this screen draws its own. */}
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView contentContainerStyle={{ padding: 20, paddingTop: insets.top + 20, paddingBottom: 60 }}>
+        {/* Header row: back, eyebrow label, and a shortcut to saved trails. */}
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}><Ionicons name="chevron-back" size={20} color={theme.color.cream} /></Pressable>
           <Text style={styles.eyebrow}>AI PHOTO-TRAIL</Text>
@@ -88,6 +146,7 @@ export default function TrailGenerator() {
         <Text style={styles.title}>Build today's trail</Text>
         <Text style={styles.subtitle}>Sequences real spots from your community into one outing.</Text>
 
+        {/* Genre focus: a horizontally scrolling chip row. */}
         <Text style={styles.label}>Genre focus</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {GENRES.map((g) => (
@@ -97,6 +156,7 @@ export default function TrailGenerator() {
           ))}
         </ScrollView>
 
+        {/* Stop count: the maximum number of stops requested from the AI. */}
         <Text style={styles.label}>Number of stops</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           {[3, 4, 5, 6].map((n) => (
@@ -110,6 +170,7 @@ export default function TrailGenerator() {
           {loading ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.generateBtnText}>Generate trail</Text>}
         </Pressable>
 
+        {/* Result: AI summary, numbered stop cards (tap opens spot detail), and the Save button. */}
         {trail && (
           <View style={{ marginTop: 28 }}>
             <Text style={styles.summary}>{trail.summary}</Text>
@@ -125,6 +186,7 @@ export default function TrailGenerator() {
               </Pressable>
             ))}
 
+            {/* Save button has three looks: saving spinner, "Saved" (disabled), or "Save this trail". */}
             <Pressable style={[styles.saveBtn, savedId && styles.saveBtnDone]} onPress={handleSave} disabled={saving || !!savedId}>
               {saving ? (
                 <ActivityIndicator color={theme.color.gold} size="small" />
@@ -141,7 +203,9 @@ export default function TrailGenerator() {
   );
 }
 
+// Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
 const styles = StyleSheet.create({
+  // Header and intro text
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
   backBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.surface, alignItems: 'center', justifyContent: 'center' },
   eyebrow: { fontFamily: theme.font.mono, fontSize: 10.5, letterSpacing: 1.5, color: theme.color.gold, flex: 1 },
@@ -149,6 +213,7 @@ const styles = StyleSheet.create({
   myTrailsText: { fontFamily: theme.font.body, fontSize: 11.5, color: theme.color.gold },
   title: { fontFamily: theme.font.display, fontSize: 25, color: theme.color.cream, marginTop: 6 },
   subtitle: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, marginTop: 6, marginBottom: 8 },
+  // Option chips and Generate button
   label: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted, marginTop: 20, marginBottom: 10 },
   chip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: theme.color.surface2, backgroundColor: theme.color.surface },
   chipSelected: { backgroundColor: theme.color.gold, borderColor: theme.color.gold },
@@ -156,6 +221,7 @@ const styles = StyleSheet.create({
   chipTextSelected: { fontFamily: theme.font.body, color: theme.color.dusk },
   generateBtn: { backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 15, alignItems: 'center', marginTop: 28 },
   generateBtnText: { fontFamily: theme.font.body, fontSize: 15, color: theme.color.dusk },
+  // Generated trail: summary and stop cards
   summary: { fontFamily: theme.font.displayItalic, fontSize: 15, color: theme.color.cream, marginBottom: 18, lineHeight: 21 },
   stopCard: { flexDirection: 'row', gap: 12, backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, padding: 12, marginBottom: 12, alignItems: 'center' },
   stopNumber: { width: 24, height: 24, borderRadius: 12, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
@@ -165,6 +231,7 @@ const styles = StyleSheet.create({
   stopTitle: { fontFamily: theme.font.body, fontSize: 14, color: theme.color.cream },
   stopMeta: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.gold, marginTop: 3 },
   stopTip: { fontFamily: theme.font.bodyRegular, fontSize: 11.5, color: theme.color.muted, marginTop: 4, lineHeight: 16 },
+  // Save button
   saveBtn: { flexDirection: 'row', gap: 7, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 13, marginTop: 6 },
   saveBtnDone: { opacity: 0.7 },
   saveBtnText: { fontFamily: theme.font.body, fontSize: 13.5, color: theme.color.gold },

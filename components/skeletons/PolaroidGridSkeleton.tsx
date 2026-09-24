@@ -1,3 +1,13 @@
+/**
+ * PolaroidGridSkeleton, loading placeholder for a 3-column polaroid grid.
+ *
+ * Purpose: shown by the Profile tab's Captures grid and the /saved screen
+ * while their spots load.
+ *
+ * How it works: a wrapping row of `count` cells, each a third of the width
+ * with PolaroidGridItem's aspect ratio and padding, filled by one Skeleton.
+ * The cells are not rotated like the real tiles.
+ */
 import { View, StyleSheet } from 'react-native';
 import { Skeleton } from '@/components/Skeleton';
 
@@ -16,6 +26,7 @@ export function PolaroidGridSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
+// Layout only; `cell` copies PolaroidGridItem's gridItem sizing.
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: '33.333%', aspectRatio: 0.85, padding: 4 },

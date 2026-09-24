@@ -1,5 +1,23 @@
+/**
+ * Design tokens: the single source for every color, font, and corner radius in the app.
+ *
+ * **Purpose**: components and screens read `theme.color.*`, `theme.font.*` and
+ * `theme.radius.*` instead of writing hex values or font names inline
+ * (a rule in .claude/rules/ui-ux.md), so the whole look can be tuned from here.
+ *
+ * **Design intent**: the "golden hour / blue hour" identity. A deep indigo dark
+ * base (dusk, surface) with warm accents (gold, ember) and a dusk-purple. The app
+ * is dark-mode only on purpose, so there is no light palette here.
+ *
+ * **Gotcha**: the font values are the names registered by `useFonts` in
+ * app/_layout.tsx. A new weight must be loaded there too, or text silently falls
+ * back to the system font.
+ */
 export const theme = {
   color: {
+    // Core palette. dusk is the screen background; surface/surface2 are raised
+    // layers (cards, sheets); gold and ember are the warm accents; cream is primary
+    // text and muted is secondary text.
     dusk: '#14171F',
     surface: '#1D2230',
     surface2: '#262C3D',
@@ -34,11 +52,15 @@ export const theme = {
     blueHourLight: '#B7A9E0',
   },
   font: {
+    // Fraunces: display serif for titles and hero moments only.
     display: 'Fraunces_500Medium',
     displayItalic: 'Fraunces_500Medium_Italic',
+    // Manrope: all UI text, labels, and buttons.
     body: 'Manrope_500Medium',
     bodyRegular: 'Manrope_400Regular',
+    // IBM Plex Mono: data-like metadata such as coordinates, timestamps, and tags.
     mono: 'IBMPlexMono_400Regular',
   },
+  // Corner radii: sm for small chips, md for cards, lg for large sheets and pills.
   radius: { sm: 4, md: 14, lg: 22 },
 };

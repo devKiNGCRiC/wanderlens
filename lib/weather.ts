@@ -1,8 +1,20 @@
+/**
+ * lib/weather.ts: current temperature and a short weather label for a location.
+ *
+ * Used by app/spot-camera.tsx to stamp a photo capture with the conditions at
+ * the time it was taken. Never throws: any failure returns null.
+ */
+
+/** Current conditions: temperature in Celsius and a short human label. */
 export type CurrentWeather = { tempC: number; condition: string };
 
 const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast';
 
 // WMO weather codes, condensed to short labels — https://open-meteo.com/en/docs
+/**
+ * Maps a WMO weather code to a label. Codes not matched by any range
+ * (including the -1 used for a missing code) fall through to 'Overcast'.
+ */
 function conditionFor(code: number): string {
   if (code === 0) return 'Clear sky';
   if (code <= 3) return 'Partly cloudy';
@@ -20,8 +32,10 @@ function conditionFor(code: number): string {
 // OpenFreeMap tile choice and the Nominatim place autocomplete. Never
 // throws: weather is a nice-to-have on top of a photo capture, not
 // something that should ever fail the capture itself.
+/** @returns Current weather, or null on any failure or missing temperature. */
 export async function getCurrentWeather(lat: number, lng: number): Promise<CurrentWeather | null> {
   try {
+    // Ask only for the two "current" fields we display.
     const params = new URLSearchParams({
       latitude: String(lat),
       longitude: String(lng),
@@ -31,6 +45,7 @@ export async function getCurrentWeather(lat: number, lng: number): Promise<Curre
     if (!res.ok) return null;
     const data = await res.json();
     const current = data?.current;
+    // Temperature is the one required field; without it there's nothing to show.
     if (typeof current?.temperature_2m !== 'number') return null;
     return { tempC: current.temperature_2m, condition: conditionFor(current.weather_code ?? -1) };
   } catch {

@@ -1,3 +1,22 @@
+/**
+ * Route: /profile, the Profile tab: the signed-in user's own profile.
+ *
+ * Purpose: shows the user's banner, avatar, name, bio, tags, genres and a
+ * 3-column polaroid grid of the spots they have posted ("Captures"). Offers
+ * Edit / Share / Saved buttons and a menu with Photo styles, Notes, the app
+ * tour, About, Sign out and Delete account. Reachable under guard 2 in
+ * app/_layout.tsx. Other people's profiles are shown by app/user/[id].tsx.
+ *
+ * How it works:
+ * - Profile fields come from AuthProvider (useAuth), not a fetch here; the
+ *   edit-profile screen refreshes that context after saving.
+ * - The user's own spots are read from the `spots` table on every focus.
+ * - Tapping a type/style/genre/place tag opens TagInfoModal explaining it.
+ * - Sign out calls AuthProvider.signOut; the auth guards in app/_layout.tsx
+ *   then send the user back to the (auth) screens automatically.
+ * - Delete account calls the `delete-account` Supabase Edge Function (server
+ *   code), then signs out.
+ */
 import { useState, useCallback } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, FlatList, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -17,8 +36,13 @@ import { PolaroidGridSkeleton } from '@/components/skeletons/PolaroidGridSkeleto
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTour } from '@/context/TourProvider';
 
+/** One of the user's own spots, as selected from the `spots` table for the grid. */
 type MySpot = { id: string; title: string; photo_url: string | null; genre: string | null };
 
+/**
+ * Turns the profile's user_type value into a display label, or null when
+ * unset/unknown. A local copy; other screens import lib/formatUserType.ts.
+ */
 function formatUserType(type: string | null) {
   if (type === 'both') return 'Traveler & Photographer';
   if (type === 'traveler') return 'Traveler';
@@ -26,11 +50,16 @@ function formatUserType(type: string | null) {
   return null;
 }
 
+/** Profile tab screen component (default export = the route). */
 export default function ProfileScreen() {
   const router = useRouter();
   const { session, profile, signOut } = useAuth();
   const insets = useSafeAreaInsets();
+  // Lets the "App tour" menu item replay the first-run tour.
   const { startTour } = useTour();
+  // mySpots/loading: the Captures grid. The rest control overlays:
+  // viewerUri (full-screen image, null = closed), infoTag (tag explainer,
+  // null = closed), the share-profile modal and the menu action sheet.
   const [mySpots, setMySpots] = useState<MySpot[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
@@ -38,6 +67,8 @@ export default function ProfileScreen() {
   const [shareVisible, setShareVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
 
+  // Load the user's own spots, newest first, each time the tab gains focus,
+  // so a newly added or deleted spot is reflected after returning here.
   useFocusEffect(
     useCallback(() => {
       (async () => {
@@ -53,6 +84,7 @@ export default function ProfileScreen() {
     }, [session])
   );
 
+  /** Confirms, then signs out. The auth guards handle the redirect. */
   function handleSignOut() {
     Alert.alert('Sign out?', undefined, [
       { text: 'Cancel', style: 'cancel' },
@@ -60,6 +92,11 @@ export default function ProfileScreen() {
     ]);
   }
 
+  /**
+   * Confirms, then asks the `delete-account` Edge Function to delete the
+   * account server-side. Only signs out if that call succeeds; otherwise a
+   * generic retry message is shown instead of the raw error.
+   */
   function handleDeleteAccount() {
     Alert.alert(
       'Delete your account?',
@@ -80,10 +117,17 @@ export default function ProfileScreen() {
     );
   }
 
+  // Derived display values: avatar fallback letter, user-type label, and
+  // the ISO country code (looked up by country name) for the flag emoji.
   const initial = profile?.full_name?.charAt(0)?.toUpperCase() || '?';
   const typeLabel = formatUserType(profile?.user_type ?? null);
   const countryCode = COUNTRIES.find((c) => c.name === profile?.country)?.code;
 
+  // One 3-column FlatList: the whole profile header is its
+  // ListHeaderComponent and the Captures grid is its rows, so the page
+  // scrolls as one. Each grid cell is a tilted PolaroidGridItem
+  // (rotationFor(index) sets its tilt) that opens /spot/[id] on tap.
+  // The modals and menu sit outside the list.
   return (
     <>
       <ScreenBackground>
@@ -95,6 +139,8 @@ export default function ProfileScreen() {
           contentContainerStyle={{ paddingBottom: 110 }}
           ListHeaderComponent={
             <View>
+              {/* Banner: the user's image (tap to enlarge) or a gradient
+                  fallback, a scrim fading into the page, and the menu button. */}
               <View style={styles.banner}>
                 {profile?.banner_url ? (
                   <Pressable onPress={() => setViewerUri(profile.banner_url)} style={StyleSheet.absoluteFill}>
@@ -109,6 +155,8 @@ export default function ProfileScreen() {
                 </Pressable>
               </View>
 
+              {/* Identity: avatar overlapping the banner, name, @username,
+                  country with flag, and bio */}
               <View style={styles.header}>
                 <Pressable onPress={() => profile?.avatar_url && setViewerUri(profile.avatar_url)} style={styles.avatar}>
                   {profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
@@ -119,6 +167,7 @@ export default function ProfileScreen() {
                 {profile?.country && <Text style={styles.country}>{countryCode ? flagEmoji(countryCode) : ''} {profile.country}</Text>}
                 {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
+                {/* Tags: user type and travel style open TagInfoModal; home city is display-only */}
                 <View style={styles.tagsRow}>
                   {typeLabel && (
                     <Pressable onPress={() => setInfoTag(profile?.user_type ?? null)} style={styles.tag}>
@@ -133,6 +182,8 @@ export default function ProfileScreen() {
                   {profile?.home_city && <View style={styles.tag}><Text style={styles.tagText}>📍 {profile.home_city}</Text></View>}
                 </View>
 
+                {/* Photography genres (gold chips) and place interests (purple
+                    chips); each opens TagInfoModal */}
                 {!!profile?.photography_genres?.length && (
                   <View style={styles.genreRow}>
                     {profile.photography_genres.map((g) => (
@@ -152,6 +203,7 @@ export default function ProfileScreen() {
                   </View>
                 )}
 
+                {/* Edit profile, share (QR modal), and saved spots */}
                 <View style={styles.actionsRow}>
                   <Pressable onPress={() => router.push('/edit-profile')} style={styles.actionBtn}>
                     <Ionicons name="create-outline" size={15} color={theme.color.gold} />
@@ -167,6 +219,7 @@ export default function ProfileScreen() {
                   </Pressable>
                 </View>
 
+                {/* Captures section heading, with a skeleton grid while loading */}
                 <View style={styles.divider} />
                 <Text style={styles.sectionEyebrow}>GALLERY</Text>
                 <View style={styles.sectionTitleRow}>
@@ -202,11 +255,14 @@ export default function ProfileScreen() {
           )}
           ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No captures yet — add one from the Map tab.</Text> : null}
         />
+        {/* Overlays: image viewer, tag explainer, share-profile modal, menu */}
         <ImageViewer visible={!!viewerUri} uri={viewerUri} onClose={() => setViewerUri(null)} />
         <TagInfoModal tag={infoTag} onClose={() => setInfoTag(null)} />
         {session && (
           <ShareProfileModal visible={shareVisible} onClose={() => setShareVisible(false)} userId={session.user.id} name={profile?.full_name || 'this traveler'} />
         )}
+        {/* Menu. "App tour" waits 350 ms before starting, presumably so the
+            sheet finishes closing before the tour overlay appears. */}
         <ActionSheet
           visible={menuVisible}
           onClose={() => setMenuVisible(false)}
@@ -224,11 +280,14 @@ export default function ProfileScreen() {
   );
 }
 
+// Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
 const styles = StyleSheet.create({
+  // Banner and menu button
   root: { flex: 1, },
   banner: { height: 160, backgroundColor: theme.color.surface },
   bannerScrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 60 },
   menuIcon: { position: 'absolute', top: 16, right: 16, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
+  // Identity block (negative marginTop pulls the avatar up over the banner)
   header: { padding: 24, paddingTop: 0 },
   avatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginTop: -46, borderWidth: 4, borderColor: theme.color.dusk },
   avatarImage: { width: '100%', height: '100%' },
@@ -237,6 +296,7 @@ const styles = StyleSheet.create({
   username: { fontFamily: theme.font.mono, fontSize: 12, color: theme.color.gold, marginTop: 3 },
   country: { fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.muted, marginTop: 4 },
   bio: { fontFamily: theme.font.bodyRegular, fontSize: 13.5, color: theme.color.cream, marginTop: 10, lineHeight: 19 },
+  // Tags and chips
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   tag: { backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: 20, paddingVertical: 5, paddingHorizontal: 12 },
   tagText: { fontFamily: theme.font.bodyRegular, fontSize: 11.5, color: theme.color.muted },
@@ -245,6 +305,7 @@ const styles = StyleSheet.create({
   genreChipText: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.gold },
   placeChip: { backgroundColor: 'rgba(75,63,114,0.25)', borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10 },
   placeChipText: { fontFamily: theme.font.mono, fontSize: 10, color: '#B7A9E0' },
+  // Action buttons, Captures heading and grid
   actionsRow: { flexDirection: 'row', gap: 8, marginTop: 18 },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 10 },
   actionBtnText: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.gold },

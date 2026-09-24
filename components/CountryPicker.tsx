@@ -1,10 +1,34 @@
+/**
+ * CountryPicker, a full-screen searchable list of countries.
+ *
+ * Purpose: lets the user pick their home country during onboarding and on
+ * the Edit Profile screen.
+ *
+ * How it works:
+ * - Opens as a full-screen `<Modal>` (not a bottom sheet) because the list
+ *   is long and needs a search box.
+ * - The country list is static data from constants/countries.ts; typing
+ *   filters it by case-insensitive substring match on the name.
+ * - A `FlatList` renders rows (it only draws what's on screen, which matters
+ *   for a ~200-row list), each showing a flag emoji built from the country code.
+ * - Tapping a row reports the country NAME (not the code) via `onSelect`,
+ *   then closes.
+ */
 import { useState } from 'react';
 import { Modal, View, Text, TextInput, FlatList, Pressable, StyleSheet } from 'react-native';
 import { theme } from '@/constants/theme';
 import { COUNTRIES, flagEmoji } from '@/constants/countries';
 
+/**
+ * Country picker modal.
+ * @param visible - whether the modal is shown (parent-controlled).
+ * @param onClose - called on Cancel, Android back, or after a selection.
+ * @param onSelect - receives the chosen country's display name.
+ */
 export function CountryPicker({ visible, onClose, onSelect }: { visible: boolean; onClose: () => void; onSelect: (name: string) => void }) {
+  // Search text. It is not reset on close, so reopening shows the last filter.
   const [query, setQuery] = useState('');
+  // Recomputed every render; cheap enough for a static list of this size.
   const filtered = COUNTRIES.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()));
 
   return (
@@ -30,6 +54,7 @@ export function CountryPicker({ visible, onClose, onSelect }: { visible: boolean
   );
 }
 
+// Colors, fonts and radii come from theme tokens in constants/theme.ts.
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.color.dusk, paddingTop: 60, paddingHorizontal: 20 },
   heading: { fontFamily: theme.font.display, fontSize: 20, color: theme.color.cream, marginBottom: 16 },

@@ -1,3 +1,12 @@
+/**
+ * PersonCardSkeleton, loading placeholder for a person card on the Connect tab.
+ *
+ * Purpose: shown by app/(tabs)/connect.tsx while its people lists load.
+ *
+ * How it works: a surface-colored card containing a round avatar block, two
+ * text bars, and a full-width pill where the action button would be. The
+ * List variant stacks several cards.
+ */
 import { View, StyleSheet } from 'react-native';
 import { Skeleton } from '@/components/Skeleton';
 import { theme } from '@/constants/theme';
@@ -19,6 +28,7 @@ export function PersonCardSkeleton() {
   );
 }
 
+/** A column of `count` placeholder cards (default 4); index keys are safe for static placeholders. */
 export function PersonCardSkeletonList({ count = 4 }: { count?: number }) {
   return (
     <View>
@@ -27,6 +37,8 @@ export function PersonCardSkeletonList({ count = 4 }: { count?: number }) {
   );
 }
 
+// The card background, border and radius use theme tokens from
+// constants/theme.ts, matching the real person card.
 const styles = StyleSheet.create({
   card: { backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, padding: 12, marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },

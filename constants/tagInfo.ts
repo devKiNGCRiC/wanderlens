@@ -1,12 +1,27 @@
+/**
+ * Plain-language explanations for every profile tag.
+ *
+ * **Purpose**: shown by components/TagInfoModal.tsx when a user taps a tag to
+ * learn what it means. Keys cover the user type (traveler / photographer / both),
+ * travel-style tags (Backpacker, Solo, Mountains...), and photography genres
+ * (Street, Astro, Long Exposure...).
+ *
+ * **Gotcha**: keys must match the tag strings exactly as stored on the profile,
+ * including case and spaces. A tag with no entry here falls back to the modal's generic
+ * "No description available yet." text.
+ */
 export const TAG_INFO: Record<string, string> = {
+  // User type (the lowercase values stored for a profile's type).
   traveler: 'Primarily travels and explores places, may or may not shoot photos seriously.',
   photographer: 'Focused on photography as the primary craft — travel is often in service of the shot.',
   both: 'Equally invested in traveling and photography, where the journey and the shot matter equally.',
+  // Travel style.
   Backpacker: 'Travels light and on a budget, favoring hostels, local transport, and flexible plans.',
   Luxury: 'Prefers comfort — quality stays, private transport, curated experiences.',
   Solo: 'Prefers traveling independently, exploring at their own pace.',
   Family: 'Travels with family, planning around group comfort and shared experiences.',
   'Weekend Trips': 'Sticks to short getaways, usually within a few hours of home.',
+  // Destinations and travel interests.
   Mountains: 'Drawn to high-altitude landscapes, treks, and peaks.',
   Beaches: 'Loves coastal spots, oceans, and beach towns.',
   City: 'Enjoys urban exploration — architecture, streets, city life.',
@@ -17,6 +32,7 @@ export const TAG_INFO: Record<string, string> = {
   Countryside: 'Prefers quiet rural landscapes over cities.',
   'Historical Sites': 'Drawn to heritage sites, monuments, and history-rich locations.',
   'Wildlife Safari': 'Travels to see and photograph wildlife in its natural habitat.',
+  // Photography genres.
   Street: 'Candid photography of everyday life in public spaces.',
   Landscape: 'Wide scenic shots of natural or urban environments.',
   Portrait: 'Photography focused on people and expression.',

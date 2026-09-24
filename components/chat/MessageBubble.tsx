@@ -1,3 +1,49 @@
+/**
+ * MessageBubble, renders one message in a chat thread.
+ *
+ * Purpose: app/chat/[id].tsx renders one of these per row of its inverted
+ * FlatList. A message can be one of eight types, and each has its own look
+ * that leans on the app's photographer "field journal" style:
+ * - text:     a speech bubble (gold for mine, dark surface for theirs), with
+ *             an optional quoted reply above the text
+ * - image:    a single polaroid-style framed photo with caption
+ * - gallery:  several photos, as a tilted polaroid "collage" cluster or a
+ *             square "grid", with a "+N" overlay when more are hidden
+ * - spot:     a SpotPreviewCard for a shared community spot
+ * - location: a LocationPreviewCard for a shared coordinate
+ * - video:    a film-reel frame with sprocket holes and a play button
+ * - voice:    a cassette-style player with a progress track
+ * - document: a file card with an icon chosen from the file extension
+ * Below the content come reaction chips and (text messages only) a
+ * time / "Sending…" / retry line.
+ *
+ * How it works:
+ * - Purely presentational apart from voice playback: all taps are reported
+ *   through callback props, and the chat screen decides what to do (open a
+ *   viewer, navigate to a spot, open maps, retry an upload, and so on).
+ * - Optimistic sending: the screen inserts a message with pending=true
+ *   before the upload finishes (showing spinners / "Sending…"), and sets
+ *   failed=true if it errors, which dims the bubble and shows "tap to retry".
+ * - Media source is `local_uri || media_url`: the local file while a message
+ *   is still uploading, then the signed Storage URL once it comes back from
+ *   the server.
+ * - Voice playback uses expo-audio's createAudioPlayer, created lazily on the
+ *   first tap. A module-level variable makes sure only one voice note plays
+ *   at a time across the whole thread.
+ * - Save-as-image support: for image and gallery messages the bubble also
+ *   renders large, hidden copies of the content off-screen. The screen
+ *   passes refs (polaroidRef, galleryRef, getAttachmentRef) to those views
+ *   and captures them to a JPEG with react-native-view-shot via
+ *   saveViewAsImage() in lib/media.ts.
+ *
+ * Gotchas:
+ * - The type checks (isImage, isGallery, ...) are mutually exclusive and
+ *   decide both which branch renders and whether the bottom meta row shows;
+ *   adding a new message type means updating both places.
+ * - `collapsable={false}` on the export views is required on Android,
+ *   otherwise React Native may optimise away a View that only wraps others,
+ *   and the capture ref would have nothing to capture.
+ */
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
@@ -7,8 +53,22 @@ import { theme } from '@/constants/theme';
 import { SpotPreviewCard } from '@/components/chat/SpotPreviewCard';
 import { LocationPreviewCard } from '@/components/chat/LocationPreviewCard';
 
+/** One emoji reaction on a message: which emoji, and who added it. */
 export type Reaction = { emoji: string; user_id: string };
 
+/**
+ * A chat message as the chat screen holds it in state. It combines columns
+ * from the messages table (and joined sender / reply / spot fields from the
+ * screen's fetch) with client-only fields for optimistic sending:
+ * - pending / failed: local send status (not stored on the server).
+ * - local_uri: the on-device file while an upload is in progress.
+ * - media_path: Storage object path; media_url: its signed URL for display.
+ * - reply_to_*: the quoted message this one replies to, if any.
+ * - *_duration_seconds, file_name, file_size: type-specific metadata.
+ * - gallery_layout / attachments: the photos of a 'gallery' message.
+ * - shared_spot_* and location_*: payloads for 'spot' and 'location' messages.
+ * message_type is optional; when absent the message renders as text.
+ */
 export type MessageItem = {
   id: string;
   sender_id: string;
@@ -42,6 +102,19 @@ export type MessageItem = {
   location_label?: string | null;
 };
 
+/**
+ * message: the message to render.
+ * isMine: aligns right with the gold bubble when true, left otherwise.
+ * myUserId: used to highlight reaction chips the current user added.
+ * onRetry: re-sends a failed message.
+ * onLongPress: opens MessageActionSheet (react / reply / save).
+ * onToggleReaction: tapping an existing reaction chip adds/removes mine.
+ * onPress*: tap handlers per content type; the image one also receives the
+ *   gallery attachment index so the viewer knows which photo was tapped.
+ * onSaveGallery: shows the small download button on gallery messages.
+ * polaroidRef / galleryRef / getAttachmentRef: refs the screen captures to
+ *   save styled images; only passed for image and gallery messages.
+ */
 type Props = {
   message: MessageItem;
   isMine: boolean;
@@ -62,6 +135,8 @@ type Props = {
   getAttachmentRef?: (index: number) => RefObject<View | null>;
 };
 
+// Collage layout: tilt angles (degrees) cycled across the mini polaroids so
+// they look casually scattered, and how many sit in each row.
 const CLUSTER_ROTATIONS = [-7, 5, -4, 6, -6, 4];
 const CLUSTER_COLS = 3;
 
@@ -72,25 +147,36 @@ const EXPORT_SINGLE_SIZE = 640;
 const EXPORT_MINI_SIZE = 260;
 const EXPORT_GRID_CELL_SIZE = 320;
 
+// Indices [0..6] used to draw the seven sprocket holes along each edge of
+// the film-reel video frame.
 const REEL_HOLES = Array.from({ length: 7 }, (_, i) => i);
 
 // Shared across every voice bubble mounted in the thread — pressing play on
 // one pauses whichever other voice message was playing, WhatsApp-style.
+// (Declared with `let` outside the component so every instance sees the same
+// variable; it is not React state, so changing it never re-renders anything.)
 let activeVoicePlayer: AudioPlayer | null = null;
 
+/** Formats seconds as m:ss, e.g. 75 -> "1:15". Used for video and voice lengths. */
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
   const s = Math.floor(totalSeconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+/** Human-readable file size for document cards: bytes, whole KB, or MB to 1 decimal. */
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Picks an Ionicons glyph for a document card from the file extension
+ * (PDF, Word, spreadsheet, archive), with a generic attachment icon otherwise.
+ */
 function documentIcon(fileName: string | null | undefined): keyof typeof Ionicons.glyphMap {
+  // Regex grabs the text after the last dot, e.g. "report.PDF" -> "pdf".
   const ext = fileName?.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase();
   if (ext === 'pdf') return 'document-text-outline';
   if (ext && ['doc', 'docx'].includes(ext)) return 'document-outline';
@@ -99,12 +185,21 @@ function documentIcon(fileName: string | null | undefined): keyof typeof Ionicon
   return 'document-attach-outline';
 }
 
+/**
+ * Splits an array into rows of `size` items, e.g. 5 photos with size 3 ->
+ * [[a, b, c], [d, e]]. Used to lay the collage out row by row.
+ */
 function chunk<T>(items: T[], size: number): T[][] {
   const rows: T[][] = [];
   for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size));
   return rows;
 }
 
+/**
+ * Turns the flat reaction list (one entry per user per emoji) into one entry
+ * per emoji with the ids of everyone who used it. A Map keeps the emoji in
+ * first-seen order. Returns [] when there are no reactions.
+ */
 function groupReactions(reactions: Reaction[] | undefined) {
   if (!reactions?.length) return [];
   const byEmoji = new Map<string, string[]>();
@@ -116,9 +211,16 @@ function groupReactions(reactions: Reaction[] | undefined) {
   return Array.from(byEmoji.entries()).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
+/**
+ * Renders one chat message, choosing the layout from message.message_type.
+ * The only side effects are voice playback (native audio player) and the
+ * callbacks it invokes on taps.
+ */
 export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry, onLongPress, onToggleReaction, onPressImage, onSaveGallery, onPressSpot, onPressLocation, onPressVideo, onPressDocument, polaroidRef, galleryRef, getAttachmentRef }: Props) {
+  // Sent time in the device's locale, hours and minutes only (e.g. "14:05").
   const time = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const grouped = groupReactions(message.reactions);
+  // One boolean per message type. Anything else (including a missing type) is text.
   const isImage = message.message_type === 'image';
   const isGallery = message.message_type === 'gallery';
   const isSpot = message.message_type === 'spot';
@@ -126,16 +228,27 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
   const isVideo = message.message_type === 'video';
   const isVoice = message.message_type === 'voice';
   const isDocument = message.message_type === 'document';
+  // Media to show for image/video/voice/document messages: the local file
+  // while uploading, otherwise the signed URL. Despite the name it is used
+  // for all four media types, not just images.
   const imageSrc = message.local_uri || message.media_url;
+  // Gallery: the grid shows at most 4 photos, the collage at most 6. Any
+  // extras are counted and shown as "+N" on the last visible photo.
   const attachments = message.attachments ?? [];
   const useGrid = message.gallery_layout === 'grid';
   const visibleAttachments = attachments.slice(0, useGrid ? 4 : 6);
   const extraCount = attachments.length - visibleAttachments.length;
 
+  // Voice note playback state. The player lives in a ref because it is a
+  // native object that must persist across renders without causing them;
+  // voicePlaying / voicePosition are state because they drive the UI
+  // (play/pause icon, progress bar, countdown).
   const voicePlayerRef = useRef<AudioPlayer | null>(null);
   const [voicePlaying, setVoicePlaying] = useState(false);
   const [voicePosition, setVoicePosition] = useState(0);
 
+  // On unmount (e.g. the row scrolls out of the list), release the native
+  // audio player and clear the shared "currently playing" slot if it was ours.
   useEffect(() => {
     return () => {
       if (activeVoicePlayer === voicePlayerRef.current) activeVoicePlayer = null;
@@ -144,10 +257,19 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
     };
   }, []);
 
+  /**
+   * Play/pause handler for voice notes. Creates the audio player lazily on
+   * the first tap (so rows that are never played never load audio), then
+   * toggles it. Starting playback pauses any other voice note in the thread.
+   */
   function toggleVoicePlayback() {
+    // Nothing to play yet (no source, or still uploading).
     if (!imageSrc || message.pending) return;
     if (!voicePlayerRef.current) {
       const player = createAudioPlayer(imageSrc);
+      // Mirror the native player's status into React state for the UI.
+      // When the clip ends, rewind to the start so the next tap replays it,
+      // and free the shared "active" slot.
       player.addListener('playbackStatusUpdate', (status) => {
         setVoicePosition(status.currentTime);
         setVoicePlaying(status.playing);
@@ -163,25 +285,38 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
     if (player.playing) {
       player.pause();
     } else {
+      // Pause whichever other bubble is playing, then claim the slot and play.
       if (activeVoicePlayer && activeVoicePlayer !== player) activeVoicePlayer.pause();
       activeVoicePlayer = player;
       player.play();
     }
   }
 
+  // Progress through the voice note as a 0..1 fraction for the track fill.
+  // Clamped to 1 because the stored duration is rounded to whole seconds.
   const voiceDuration = message.voice_duration_seconds ?? 0;
   const voiceProgress = voiceDuration > 0 ? Math.min(voicePosition / voiceDuration, 1) : 0;
 
+  // Layout: optional sender label, then exactly one content branch chosen by
+  // type (gallery, spot, location, video, voice, document, else image/text),
+  // then reactions, then the time/retry row for text messages.
   return (
     <View style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}>
+      {/* Sender name, group chats only (the screen omits it for my messages) */}
       {!!senderLabel && <Text style={styles.senderLabel}>{senderLabel}</Text>}
+      {/* Content branch. Each branch's first child comment names the type it renders. */}
       {isGallery ? (
         <View style={styles.galleryOuter}>
+        {/* GALLERY message: several photos as a grid or a polaroid collage.
+            Visible part first, then an optional save button, then the
+            hidden high-resolution copies used for saving. */}
         <View style={[useGrid ? styles.gridWrap : styles.galleryWrap, message.failed && styles.bubbleFailed]}>
+          {/* Grid layout: up to 4 square cells in a 2x2 block */}
           {useGrid ? (
             <View style={styles.gridGroup}>
               {visibleAttachments.map((att, i) => {
                 const src = att.local_uri || att.media_url;
+                // Only the last visible cell carries the "+N more" overlay.
                 const showMore = i === visibleAttachments.length - 1 && extraCount > 0;
                 return (
                   <Pressable
@@ -190,6 +325,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
                     delayLongPress={250}
                     onPress={src ? () => onPressImage?.(src, i) : undefined}
                     style={styles.gridCell}>
+                    {/* Photo, or a spinner placeholder until a URL is available */}
                     {src ? (
                       <Image source={{ uri: src }} style={styles.image} contentFit="cover" />
                     ) : (
@@ -203,7 +339,12 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
           ) : (
             chunk(visibleAttachments, CLUSTER_COLS).map((row, rowIndex) => (
               <View key={rowIndex} style={[styles.clusterRow, rowIndex > 0 && styles.clusterRowOverlap]}>
+                {/* Collage layout: rows of 3 tilted mini polaroids. Rows after
+                    the first overlap upward, and photos after the first in a
+                    row overlap leftward, via negative margins in the styles. */}
                 {row.map((att, colIndex) => {
+                  // Flat index across all rows, used for the tap index,
+                  // "+N" check and rotation.
                   const i = rowIndex * CLUSTER_COLS + colIndex;
                   const src = att.local_uri || att.media_url;
                   const showMore = i === visibleAttachments.length - 1 && extraCount > 0;
@@ -231,6 +372,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
               </View>
             ))
           )}
+          {/* Footer: upload progress text, caption, then retry (failed) or time (sent) */}
           {message.pending && !message.failed && (
             <Text style={styles.galleryMeta}>Uploading {attachments.length} photos…</Text>
           )}
@@ -244,6 +386,8 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
             <Text style={styles.galleryMeta}>{time}</Text>
           ) : null}
         </View>
+        {/* Small round download button pinned to the gallery's top-right
+            corner, only once the message is fully sent */}
         {onSaveGallery && !message.pending && !message.failed && (
           <Pressable onPress={onSaveGallery} accessibilityLabel="Save gallery" hitSlop={9} style={styles.gallerySaveBtn}>
             <Ionicons name="download-outline" size={14} color={theme.color.cream} />
@@ -255,6 +399,12 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
             above, so saved images aren't capped at chat-bubble resolution. */}
         {(galleryRef || getAttachmentRef) && (
           <View style={styles.hiddenExportLayer} pointerEvents="none">
+            {/* Positioned 3000px above the screen so it is laid out and
+                capturable but never visible; pointerEvents="none" keeps it
+                from intercepting touches. */}
+            {/* 1) Whole-gallery export: the same grid or collage as above,
+                scaled up, on a dark backdrop, with the caption. Saved by the
+                gallery download button (screen's handleSaveGallery). */}
             {galleryRef && (
               <View ref={galleryRef} collapsable={false} style={[useGrid ? styles.exportGridWrap : styles.exportGalleryWrap]}>
                 {useGrid ? (
@@ -290,6 +440,9 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
               </View>
             )}
 
+            {/* 2) One standalone polaroid per visible photo, each with its own
+                ref from getAttachmentRef(i). Used by "Save as polaroid" in the
+                image viewer after tapping a single gallery photo. */}
             {getAttachmentRef && visibleAttachments.map((att, i) => {
               const src = att.local_uri || att.media_url;
               return (
@@ -305,6 +458,8 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       ) : isSpot ? (
         <View>
+          {/* SPOT message: shared community spot card, optional note in a
+              bubble beneath it, and the time */}
           <SpotPreviewCard
             title={message.shared_spot_title ?? null}
             photoUrl={message.shared_spot_photo_url ?? null}
@@ -321,6 +476,8 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       ) : isLocation ? (
         <View>
+          {/* LOCATION message: coordinate card (tap opens maps only when both
+              lat and lng are present), optional note, and the time */}
           <LocationPreviewCard
             label={message.location_label ?? null}
             lat={message.location_lat ?? 0}
@@ -338,6 +495,9 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       ) : isVideo ? (
         <View>
+          {/* VIDEO message: a film-reel frame (sprocket rows top and bottom)
+              with a play button and duration badge. No thumbnail is shown;
+              tapping opens VideoViewerModal via onPressVideo once uploaded. */}
           <Pressable
             onLongPress={onLongPress}
             delayLongPress={250}
@@ -347,6 +507,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
               {REEL_HOLES.map((i) => <View key={i} style={styles.reelHole} />)}
             </View>
             <View style={styles.reelBody}>
+              {/* Spinner while uploading, play button otherwise */}
               {message.pending && !message.failed ? (
                 <ActivityIndicator color={theme.color.cream} />
               ) : (
@@ -362,6 +523,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
               {REEL_HOLES.map((i) => <View key={i} style={styles.reelHole} />)}
             </View>
           </Pressable>
+          {/* Caption, then retry (failed) or time (sent); nothing while pending */}
           {!!message.content && <Text style={styles.galleryCaption}>{message.content}</Text>}
           {message.failed ? (
             <Pressable onPress={onRetry} style={styles.polaroidRetryRow}>
@@ -374,24 +536,31 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       ) : isVoice ? (
         <View>
+          {/* VOICE message: cassette-style player. Tap toggles playback in
+              place (no parent callback); long-press opens the action sheet. */}
           <Pressable
             onLongPress={onLongPress}
             delayLongPress={250}
             onPress={toggleVoicePlayback}
             style={[styles.voiceCassette, message.failed && styles.bubbleFailed]}>
             <View style={styles.voicePlayBtn}>
+              {/* Spinner while uploading or while the signed URL hasn't
+                  arrived yet; otherwise play/pause */}
               {(message.pending || (!imageSrc && !message.failed)) ? (
                 <ActivityIndicator size="small" color={theme.color.dusk} />
               ) : (
                 <Ionicons name={voicePlaying ? 'pause' : 'play'} size={16} color={theme.color.dusk} />
               )}
             </View>
+            {/* "Tape" track: grey line, gold fill sized by playback progress,
+                and a reel dot at each end */}
             <View style={styles.voiceTrack}>
               <View style={styles.voiceTrackLine} />
               <View style={[styles.voiceTrackFill, { width: `${voiceProgress * 100}%` }]} />
               <View style={styles.voiceReelDot} />
               <View style={[styles.voiceReelDot, styles.voiceReelDotRight]} />
             </View>
+            {/* Duration: full length when idle, remaining time once started */}
             {message.voice_duration_seconds != null && (
               <Text style={styles.voiceDuration}>
                 {formatDuration(voicePlaying || voicePosition > 0 ? Math.max(0, Math.round(voiceDuration - voicePosition)) : voiceDuration)}
@@ -409,6 +578,9 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       ) : isDocument ? (
         <View>
+          {/* DOCUMENT message: file card with type icon, name and size. Tap
+              hands the URL to onPressDocument (the screen opens it with
+              Linking) once the upload has finished. */}
           <Pressable
             onLongPress={onLongPress}
             delayLongPress={250}
@@ -438,7 +610,11 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       ) : (
         <>
+        {/* IMAGE or TEXT message. They share one Pressable: long-press opens
+            the action sheet for both, tap opens the viewer for images only. */}
         <Pressable onLongPress={onLongPress} delayLongPress={250} onPress={isImage && imageSrc ? () => onPressImage?.(imageSrc) : undefined}>
+          {/* Image: a single polaroid with photo, italic caption, and a
+              "Sending…"/time line or a retry link */}
           {isImage ? (
             <View style={[styles.polaroidFrame, message.failed && styles.bubbleFailed]}>
               <View style={styles.polaroidPhotoWrap}>
@@ -447,6 +623,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
                 ) : (
                   <View style={[styles.image, styles.imagePlaceholder]}><ActivityIndicator color={theme.color.gold} /></View>
                 )}
+                {/* Dim overlay + spinner over the local preview while uploading */}
                 {message.pending && !message.failed && (
                   <View style={styles.uploadingOverlay}><ActivityIndicator color={theme.color.cream} /></View>
                 )}
@@ -463,6 +640,7 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
             </View>
           ) : (
             <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs, message.failed && styles.bubbleFailed]}>
+              {/* Text: optional one-line quote of the message being replied to, then the text */}
               {message.reply_to_content && (
                 <View style={[styles.replyQuote, isMine && styles.replyQuoteMine]}>
                   <Text style={[styles.replyQuoteName, isMine && styles.replyQuoteNameMine]} numberOfLines={1}>
@@ -478,6 +656,8 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
           )}
         </Pressable>
 
+        {/* Hidden large polaroid (640px photo) for "Save as polaroid" on
+            single images; captured through polaroidRef by the screen. */}
         {isImage && polaroidRef && (
           <View style={styles.hiddenExportLayer} pointerEvents="none">
             <View ref={polaroidRef} collapsable={false} style={styles.exportPolaroidFrame}>
@@ -492,6 +672,9 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </>
       )}
 
+      {/* Reaction chips, one per emoji. Mine get a gold border, a count
+          appears when more than one person used the emoji, and tapping a
+          chip toggles my own reaction with that emoji. */}
       {grouped.length > 0 && (
         <View style={[styles.reactionsRow, isMine ? styles.reactionsRowMine : styles.reactionsRowTheirs]}>
           {grouped.map(({ emoji, userIds }) => (
@@ -506,6 +689,8 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
         </View>
       )}
 
+      {/* Meta row for TEXT messages only (every other type draws its own
+          time/retry inside its branch): retry link, "Sending…", or time */}
       {!isImage && !isGallery && !isSpot && !isLocation && !isVideo && !isVoice && !isDocument && (
         <View style={[styles.metaRow, isMine ? styles.metaRowMine : styles.metaRowTheirs]}>
           {message.failed ? (
@@ -522,15 +707,20 @@ export function MessageBubble({ message, isMine, myUserId, senderLabel, onRetry,
   );
 }
 
+// Styles use design tokens from constants/theme.ts. A few literal colours
+// remain (shadows, translucent overlays, the film-reel blacks).
 const styles = StyleSheet.create({
+  // Row alignment (mine right, theirs left) and group sender label
   row: { marginVertical: 3, maxWidth: '78%' },
   senderLabel: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.gold, marginBottom: 3, marginLeft: 4 },
   rowMine: { alignSelf: 'flex-end', alignItems: 'flex-end' },
   rowTheirs: { alignSelf: 'flex-start', alignItems: 'flex-start' },
+  // Text bubble: gold for mine, dark surface for theirs, with a squared-off tail corner
   bubble: { borderRadius: theme.radius.md, paddingVertical: 9, paddingHorizontal: 14 },
   bubbleMine: { backgroundColor: theme.color.gold, borderBottomRightRadius: 4 },
   bubbleTheirs: { backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderBottomLeftRadius: 4 },
   bubbleFailed: { opacity: 0.6 },
+  // Single-image polaroid (visible, bubble-sized)
   polaroidFrame: { backgroundColor: theme.color.cream, padding: 8, paddingBottom: 12, borderRadius: theme.radius.sm, width: 190, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   polaroidPhotoWrap: { width: '100%', height: 174, borderRadius: 2, overflow: 'hidden', backgroundColor: theme.color.surface2 },
   image: { width: '100%', height: '100%' },
@@ -540,17 +730,21 @@ const styles = StyleSheet.create({
   polaroidMeta: { fontFamily: theme.font.mono, fontSize: 9, color: theme.color.polaroidMuted, textAlign: 'center', marginTop: 6 },
   polaroidRetryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 6 },
   polaroidRetryText: { fontFamily: theme.font.mono, fontSize: 9, color: theme.color.ember },
+  // Gallery collage: overlapping, tilted mini polaroids
   galleryWrap: { paddingHorizontal: 10, paddingTop: 6, width: 210 },
   clusterRow: { flexDirection: 'row' },
   clusterRowOverlap: { marginTop: -18 },
   miniPolaroid: { backgroundColor: theme.color.cream, padding: 4, paddingBottom: 8, borderRadius: 3, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
   miniPolaroidOverlap: { marginLeft: -16 },
   miniPhotoWrap: { width: 60, height: 60, borderRadius: 2, overflow: 'hidden', backgroundColor: theme.color.surface2 },
+  // Gallery wrapper and its floating save button
   galleryOuter: { position: 'relative' },
   gallerySaveBtn: { position: 'absolute', top: -6, right: -6, width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(20,23,31,0.65)', alignItems: 'center', justifyContent: 'center', zIndex: 1 },
+  // Gallery grid: 2 x 100px cells per row with a 3px gap
   gridWrap: { width: 203 },
   gridGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, borderRadius: theme.radius.md, overflow: 'hidden' },
   gridCell: { width: 100, height: 100, backgroundColor: theme.color.surface2 },
+  // Hidden high-resolution export renders (captured for saving, never seen)
   hiddenExportLayer: { position: 'absolute', top: -3000, left: 0, flexDirection: 'row', gap: 4 },
   exportPolaroidFrame: { backgroundColor: theme.color.cream, padding: 28, paddingBottom: 46, borderRadius: theme.radius.md, width: EXPORT_SINGLE_SIZE + 56 },
   exportPolaroidPhotoWrap: { width: EXPORT_SINGLE_SIZE, height: EXPORT_SINGLE_SIZE, borderRadius: 6, overflow: 'hidden', backgroundColor: theme.color.surface2 },
@@ -567,13 +761,16 @@ const styles = StyleSheet.create({
   exportMiniPolaroidOverlap: { marginLeft: -68 },
   exportMiniPhotoWrap: { width: EXPORT_MINI_SIZE, height: EXPORT_MINI_SIZE, borderRadius: 8, overflow: 'hidden', backgroundColor: theme.color.surface2 },
   exportGalleryCaption: { fontFamily: theme.font.displayItalic, fontSize: 26, color: theme.color.cream, marginTop: 24, textAlign: 'center' },
+  // Spot / location note bubble and time line
   spotCaptionBubble: { marginTop: 6, borderBottomRightRadius: theme.radius.md, borderBottomLeftRadius: theme.radius.md },
   spotTime: { marginTop: 4, paddingHorizontal: 4 },
   spotTimeMine: { textAlign: 'right' },
+  // "+N" overlay, gallery caption and meta text
   galleryMoreOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   galleryMoreText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   galleryCaption: { fontFamily: theme.font.displayItalic, fontSize: 12.5, color: theme.color.cream, marginTop: 10, textAlign: 'center' },
   galleryMeta: { fontFamily: theme.font.mono, fontSize: 9, color: theme.color.muted, textAlign: 'center', marginTop: 6 },
+  // Video film-reel frame, sprocket holes, play button, duration badge
   videoReelFrame: { width: 200, borderRadius: theme.radius.sm, overflow: 'hidden', backgroundColor: '#0C0D10', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   reelPerforationRow: { flexDirection: 'row', justifyContent: 'space-evenly', paddingVertical: 5, backgroundColor: '#050506' },
   reelHole: { width: 6, height: 6, borderRadius: 1.5, backgroundColor: theme.color.surface2 },
@@ -581,6 +778,7 @@ const styles = StyleSheet.create({
   reelPlayBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
   reelDurationBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 8, paddingVertical: 2, paddingHorizontal: 7 },
   reelDurationText: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.cream },
+  // Voice note cassette player and progress track
   voiceCassette: { flexDirection: 'row', alignItems: 'center', gap: 10, width: 210, backgroundColor: theme.color.mediaCasing, borderRadius: theme.radius.lg, paddingVertical: 10, paddingHorizontal: 12, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   voicePlayBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
   voiceTrack: { flex: 1, height: 20, justifyContent: 'center' },
@@ -589,20 +787,24 @@ const styles = StyleSheet.create({
   voiceReelDot: { position: 'absolute', left: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: theme.color.surface2 },
   voiceReelDotRight: { left: undefined, right: 0 },
   voiceDuration: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.muted },
+  // Document card
   documentCard: { flexDirection: 'row', alignItems: 'center', gap: 10, width: 220, backgroundColor: theme.color.mediaCasing, borderRadius: theme.radius.sm, paddingVertical: 12, paddingHorizontal: 12 },
   documentIconWrap: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center' },
   documentInfo: { flex: 1 },
   documentName: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   documentSize: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.muted, marginTop: 2 },
+  // Message text colours (dark on gold, cream on surface)
   text: { fontFamily: theme.font.bodyRegular, fontSize: 14, lineHeight: 19 },
   textMine: { color: theme.color.dusk },
   textTheirs: { color: theme.color.cream },
+  // Quoted reply inside a text bubble
   replyQuote: { borderLeftWidth: 2, borderLeftColor: theme.color.surface2, paddingLeft: 8, marginBottom: 6 },
   replyQuoteMine: { borderLeftColor: 'rgba(20,23,31,0.35)' },
   replyQuoteName: { fontFamily: theme.font.body, fontSize: 11, color: theme.color.gold },
   replyQuoteNameMine: { color: theme.color.dusk },
   replyQuoteText: { fontFamily: theme.font.bodyRegular, fontSize: 12, color: theme.color.muted },
   replyQuoteTextMine: { color: 'rgba(20,23,31,0.7)' },
+  // Reaction chips
   reactionsRow: { flexDirection: 'row', gap: 4, marginTop: 3 },
   reactionsRowMine: { justifyContent: 'flex-end' },
   reactionsRowTheirs: { justifyContent: 'flex-start' },
@@ -610,6 +812,7 @@ const styles = StyleSheet.create({
   reactionChipMine: { borderColor: theme.color.gold },
   reactionEmoji: { fontSize: 12 },
   reactionCount: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted },
+  // Time / Sending / retry row under text messages
   metaRow: { marginTop: 3, paddingHorizontal: 4 },
   metaRowMine: { alignItems: 'flex-end' },
   metaRowTheirs: { alignItems: 'flex-start' },

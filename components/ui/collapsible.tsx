@@ -1,3 +1,20 @@
+/**
+ * Collapsible, a tap-to-expand section with a rotating chevron.
+ *
+ * Purpose: a leftover from the `create-expo-app` starter template's
+ * "Explore" tab. Nothing in the repo imports it today.
+ *
+ * How it works:
+ * - Local `isOpen` state toggles whether `children` render under the title.
+ * - The chevron is an `IconSymbol` rotated 90 degrees when open.
+ * - Built on the template's ThemedText / ThemedView.
+ *
+ * Gotchas: it imports `Colors` from constants/theme.ts, which only exports
+ * `theme` now, so `npx tsc --noEmit` fails on this file. Because
+ * `useColorScheme` is hardcoded to 'dark', the 'light' comparison below can
+ * never be true (tsc flags that too). It also uses `TouchableOpacity`, where
+ * new code in this repo uses `Pressable`.
+ */
 import { PropsWithChildren, useState } from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
 
@@ -7,10 +24,16 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
+/**
+ * Expandable section.
+ * @param title - heading text shown next to the chevron.
+ * @param children - content revealed when open; starts collapsed.
+ */
 export function Collapsible({ children, title }: PropsWithChildren & { title: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const theme = useColorScheme() ?? 'light';
 
+  // Tapping the heading row flips isOpen; content is only mounted while open.
   return (
     <ThemedView>
       <TouchableOpacity
@@ -32,6 +55,7 @@ export function Collapsible({ children, title }: PropsWithChildren & { title: st
   );
 }
 
+// Template spacing values, not constants/theme.ts tokens.
 const styles = StyleSheet.create({
   heading: {
     flexDirection: 'row',

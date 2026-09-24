@@ -1,3 +1,31 @@
+/**
+ * Route: /user/[id], another user's public profile.
+ *
+ * Purpose: what you see when you tap someone else's name or avatar anywhere
+ * in the app (feed, Connect tab, spot comments, group members, chat). Shows
+ * their banner, avatar, bio, tags and genres, the mutual-connection button
+ * set, a Message button, and a polaroid grid of the spots they've posted.
+ * This is the "connection layer" pillar of Wanderlens: connections are
+ * mutual and both-sides-agreed, so there is no follower count here by design
+ * (see CLAUDE.md). This route is not listed by name in app/_layout.tsx;
+ * expo-router discovers it from the file system.
+ *
+ * How it works:
+ * - If the id is your own, load() redirects to your own Profile tab instead.
+ * - Reads the profile and their spots from the profiles and spots tables,
+ *   the connection state from the get_connection_status RPC, and whether you
+ *   blocked them from blocked_users.
+ * - Connection lifecycle writes go to the connections table: insert
+ *   (request), update status to 'accepted' (accept), delete (cancel,
+ *   decline, or remove).
+ * - "Message" calls get_or_create_direct_conversation and opens /chat/[id].
+ * - The "..." menu offers Block/Unblock and Report (report_content RPC).
+ *
+ * Why:
+ * - useFocusEffect re-fetches whenever the screen regains focus, so the
+ *   connection state is current after coming back from a chat or another
+ *   profile.
+ */
 import { useState, useCallback } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, FlatList, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
@@ -14,23 +42,37 @@ import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
 import { flagEmoji, COUNTRIES } from '@/constants/countries';
 import { formatUserType } from '@/lib/formatUserType';
 
+/** A user's public profile row from the profiles table. */
 type PublicProfile = {
   id: string; full_name: string | null; username: string | null; bio: string | null;
   avatar_url: string | null; banner_url: string | null; user_type: string | null;
   travel_style: string | null; home_city: string | null; country: string | null;
   photography_genres: string[] | null; place_interests: string[] | null;
 };
+/** One of the user's spots, just enough to render a polaroid grid tile. */
 type Spot = { id: string; photo_url: string | null; genre: string | null };
+/**
+ * The connection between the viewer and this user.
+ * status 'none' = no row; 'pending' = request waiting; 'accepted' = connected.
+ * isRequester is true when the viewer sent the request (decides Cancel vs. Accept/Decline).
+ */
 type ConnState = { id: string | null; status: 'none' | 'pending' | 'accepted'; isRequester: boolean };
 
+/**
+ * Public profile screen component. Loads the profile on focus and renders
+ * the header, connection/message actions and the captures grid.
+ */
 export default function PublicProfile() {
+  // `id` is the profile owner's user id from the URL.
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  // Profile data, their spots and the connection state between viewer and profile owner.
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [spots, setSpots] = useState<Spot[]>([]);
   const [conn, setConn] = useState<ConnState>({ id: null, status: 'none', isRequester: false });
+  // UI state: loading, full-screen avatar viewer, message button spinner, block status and the two action sheets.
   const [loading, setLoading] = useState(true);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [messaging, setMessaging] = useState(false);
@@ -38,8 +80,13 @@ export default function PublicProfile() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportSheetVisible, setReportSheetVisible] = useState(false);
 
+  /**
+   * Fetches the profile, their spots, and (when signed in) the connection and
+   * block state. Runs on focus.
+   */
   const load = useCallback(async () => {
     if (!id) return;
+    // Viewing your own id: send the user to the Profile tab, which has the editable version.
     if (session && id === session.user.id) {
       router.replace('/(tabs)/profile');
       return;
@@ -49,40 +96,56 @@ export default function PublicProfile() {
     const { data: spotsData } = await supabase.from('spots').select('id, photo_url, genre').eq('created_by', id).order('created_at', { ascending: false });
     setSpots((spotsData as Spot[]) ?? []);
 
+    // Relationship data depends on who is viewing, so only fetch it with a session.
     if (session) {
+      // Shape of the row the get_connection_status RPC returns; no row means not connected.
       type ConnRow = { id: string; status: string; is_requester: boolean };
       const { data: connData } = await supabase.rpc('get_connection_status', { other_id: id }).maybeSingle() as { data: ConnRow | null };
       if (connData) setConn({ id: connData.id, status: connData.status as any, isRequester: connData.is_requester });
       else setConn({ id: null, status: 'none', isRequester: false });
 
+      // Did the viewer block this person? Used to disable the Message button and label the menu.
       const { data: blockRow } = await supabase.from('blocked_users').select('id').eq('blocker_id', session.user.id).eq('blocked_id', id).maybeSingle();
       setMyBlocked(!!blockRow);
     }
     setLoading(false);
   }, [id, session]);
 
+  // Re-load whenever this screen gains focus (expo-router's focus-aware effect).
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  /** Sends a connection request (new pending row with the viewer as requester). */
   async function sendRequest() {
     if (!session || !id) return;
     const { data } = await supabase.from('connections').insert({ requester_id: session.user.id, recipient_id: id }).select('id').single();
     if (data) setConn({ id: data.id, status: 'pending', isRequester: true });
   }
+  /** Withdraws the viewer's own pending request by deleting the row. */
   async function cancelRequest() {
     if (!conn.id) return;
     await supabase.from('connections').delete().eq('id', conn.id);
     setConn({ id: null, status: 'none', isRequester: false });
   }
+  /**
+   * Responds to an incoming request: accept flips the row to 'accepted',
+   * decline deletes it.
+   */
   async function respond(accept: boolean) {
     if (!conn.id) return;
     if (accept) { await supabase.from('connections').update({ status: 'accepted' }).eq('id', conn.id); setConn((c) => ({ ...c, status: 'accepted' })); }
     else { await supabase.from('connections').delete().eq('id', conn.id); setConn({ id: null, status: 'none', isRequester: false }); }
   }
+  /** Removes an accepted connection by deleting the row. */
   async function removeConnection() {
     if (!conn.id) return;
     await supabase.from('connections').delete().eq('id', conn.id);
     setConn({ id: null, status: 'none', isRequester: false });
   }
+  /**
+   * Opens a one-to-one chat with this user. The RPC returns the existing direct
+   * conversation if there is one, otherwise creates it, then we navigate to it.
+   * The `messaging` flag ignores repeat taps while the request is in flight.
+   */
   async function messageUser() {
     if (!session || !id || messaging) return;
     setMessaging(true);
@@ -90,6 +153,10 @@ export default function PublicProfile() {
     setMessaging(false);
     if (!error && data) router.push({ pathname: '/chat/[id]', params: { id: data as string } });
   }
+  /**
+   * Blocks or unblocks this user via blocked_users. Unblocking happens
+   * immediately; blocking asks for confirmation first.
+   */
   function toggleBlock() {
     if (!session || !id) return;
     if (myBlocked) {
@@ -101,15 +168,18 @@ export default function PublicProfile() {
       { text: 'Block', style: 'destructive', onPress: async () => { await supabase.from('blocked_users').insert({ blocker_id: session.user.id, blocked_id: id }); setMyBlocked(true); } },
     ]);
   }
+  /** Files a report about this user via the report_content RPC, then thanks the viewer. */
   async function submitReport(reason: string) {
     if (!id) return;
     await supabase.rpc('report_content', { p_target_type: 'user', p_target_id: id, p_reason: reason });
     Alert.alert('Reported', "Thanks — we'll review this.");
   }
+  /** Opens the "..." menu (Block / Report). */
   function openMenu() {
     setMenuVisible(true);
   }
 
+  // Loading state: gold spinner while the profile loads.
   if (loading || !profile) {
     return (
       <>
@@ -119,10 +189,13 @@ export default function PublicProfile() {
     );
   }
 
+  // Derived display values: avatar initial, readable user-type label, and the ISO country code for the flag emoji.
   const initial = profile.full_name?.charAt(0)?.toUpperCase() || '?';
   const typeLabel = formatUserType(profile.user_type);
   const countryCode = COUNTRIES.find((c) => c.name === profile.country)?.code;
 
+  // Loaded state: a 3-column grid of the user's spots. The whole profile
+  // header is the list's ListHeaderComponent so everything scrolls together.
   return (
     <ScreenBackground>
       <Stack.Screen options={{ headerShown: false }} />
@@ -133,6 +206,7 @@ export default function PublicProfile() {
         contentContainerStyle={{ paddingBottom: 60 }}
         ListHeaderComponent={
           <View>
+            {/* Banner image (or warm gradient) with back and "..." menu buttons. */}
             <View style={styles.banner}>
               {profile.banner_url ? <Image source={{ uri: profile.banner_url }} style={StyleSheet.absoluteFill} /> : <LinearGradient colors={['#C9683E', '#4B3F72', 'transparent']} style={StyleSheet.absoluteFill} />}
               <Pressable onPress={() => router.back()} style={[styles.backBtn, { top: insets.top + 10 }]}>
@@ -142,6 +216,7 @@ export default function PublicProfile() {
                 <Ionicons name="ellipsis-horizontal" size={20} color={theme.color.cream} />
               </Pressable>
             </View>
+            {/* Profile header: avatar (tap to enlarge), name, handle, country, bio. */}
             <View style={styles.header}>
               <Pressable onPress={() => profile.avatar_url && setViewerUri(profile.avatar_url)} style={styles.avatarRing}>
                 <View style={styles.avatar}>
@@ -152,11 +227,13 @@ export default function PublicProfile() {
               {profile.username ? <Text style={styles.username}>@{profile.username}</Text> : null}
               {profile.country && <Text style={styles.country}>{countryCode ? flagEmoji(countryCode) : ''} {profile.country}</Text>}
               {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+              {/* Tag chips: user type, travel style, home city. */}
               <View style={styles.tagsRow}>
                 {typeLabel && <View style={styles.tag}><Text style={styles.tagText}>{typeLabel}</Text></View>}
                 {profile.travel_style && <View style={styles.tag}><Text style={styles.tagText}>{profile.travel_style}</Text></View>}
                 {profile.home_city && <View style={styles.tag}><Text style={styles.tagText}>📍 {profile.home_city}</Text></View>}
               </View>
+              {/* Photography genres (gold chips) and place interests (purple chips). */}
               {!!profile.photography_genres?.length && (
                 <View style={styles.genreRow}>
                   {profile.photography_genres.map((g) => <View key={g} style={styles.genreChip}><Text style={styles.genreChipText}>{g}</Text></View>)}
@@ -168,6 +245,7 @@ export default function PublicProfile() {
                 </View>
               )}
 
+              {/* Connection actions: exactly one of these four blocks shows, based on conn.status and who sent the request. */}
               {conn.status === 'none' && (
                 <Pressable onPress={sendRequest} style={styles.connectBtn}><Ionicons name="person-add-outline" size={15} color={theme.color.dusk} /><Text style={styles.connectBtnText}>Connect</Text></Pressable>
               )}
@@ -187,6 +265,7 @@ export default function PublicProfile() {
                 </View>
               )}
 
+              {/* Message button: spinner while opening the chat, disabled if the viewer blocked this person. */}
               <Pressable onPress={messageUser} disabled={messaging || myBlocked} style={[styles.messageBtn, myBlocked && styles.messageBtnDisabled]}>
                 {messaging ? (
                   <ActivityIndicator size="small" color={theme.color.gold} />
@@ -200,6 +279,7 @@ export default function PublicProfile() {
                 )}
               </Pressable>
 
+              {/* Divider and "Captures" heading above the spot grid. */}
               <View style={styles.divider} />
               <Text style={styles.sectionTitle}>Captures ({spots.length})</Text>
             </View>
@@ -209,8 +289,10 @@ export default function PublicProfile() {
           <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
         )}
       />
+      {/* Full-screen avatar viewer. */}
       <ImageViewer visible={!!viewerUri} uri={viewerUri} onClose={() => setViewerUri(null)} />
 
+      {/* "..." menu: Block/Unblock and Report. */}
       <ActionSheet
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
@@ -221,6 +303,7 @@ export default function PublicProfile() {
         ]}
       />
 
+      {/* Report reasons sheet; each option submits a report_content call. */}
       <ActionSheet
         visible={reportSheetVisible}
         onClose={() => setReportSheetVisible(false)}
@@ -236,11 +319,14 @@ export default function PublicProfile() {
   );
 }
 
+// Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
 const styles = StyleSheet.create({
+  // Loading, banner and floating buttons
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.dusk },
   banner: { height: 140, backgroundColor: theme.color.surface },
   backBtn: { position: 'absolute', left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   menuBtn: { position: 'absolute', right: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
+  // Header: avatar, name, bio
   header: { padding: 24, paddingTop: 0 },
   avatarRing: { width: 96, height: 96, borderRadius: 48, borderWidth: 3, borderColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', marginTop: -48, backgroundColor: theme.color.dusk },
   avatar: { width: 84, height: 84, borderRadius: 42, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
@@ -250,6 +336,7 @@ const styles = StyleSheet.create({
   username: { fontFamily: theme.font.mono, fontSize: 12, color: theme.color.gold, marginTop: 2 },
   country: { fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.muted, marginTop: 4 },
   bio: { fontFamily: theme.font.bodyRegular, fontSize: 13.5, color: theme.color.cream, marginTop: 10, lineHeight: 19 },
+  // Tag and genre chips
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   tag: { backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: 20, paddingVertical: 5, paddingHorizontal: 12 },
   tagText: { fontFamily: theme.font.bodyRegular, fontSize: 11.5, color: theme.color.muted },
@@ -258,6 +345,7 @@ const styles = StyleSheet.create({
   genreChipText: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.gold },
   placeChip: { backgroundColor: 'rgba(75,63,114,0.25)', borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10 },
   placeChipText: { fontFamily: theme.font.mono, fontSize: 10, color: '#B7A9E0' },
+  // Connection and message buttons
   connectBtn: { flexDirection: 'row', gap: 7, marginTop: 18, backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   connectBtnText: { fontFamily: theme.font.body, fontSize: 13.5, color: theme.color.dusk },
   pendingBtn: { marginTop: 18, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.md, paddingVertical: 12, alignItems: 'center' },
@@ -269,6 +357,7 @@ const styles = StyleSheet.create({
   messageBtnDisabled: { borderColor: theme.color.surface2 },
   messageBtnText: { fontFamily: theme.font.body, fontSize: 13.5, color: theme.color.gold },
   respondRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  // Divider and section title
   divider: { height: 1, backgroundColor: theme.color.surface2, marginTop: 24, marginBottom: 14 },
   sectionTitle: { fontFamily: theme.font.display, fontSize: 16, color: theme.color.cream },
 });

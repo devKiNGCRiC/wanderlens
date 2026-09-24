@@ -1,3 +1,21 @@
+/**
+ * Route: /create-group, the "New group" chat creator.
+ *
+ * Purpose: name a group, pick members by searching people, and create the
+ * group conversation. Opened from the Chat tab's "New group" action;
+ * registered as a modal inside the signed-in-and-onboarded
+ * `<Stack.Protected>` block in app/_layout.tsx.
+ *
+ * How it works:
+ * - People search queries the `profiles` table on each keystroke of 2+
+ *   characters (same query as app/new-message.tsx).
+ * - Chosen people are kept in `selected` and shown as removable chips.
+ * - "Create group" calls the `create_group_conversation` RPC with the name
+ *   and member ids. Server-side it makes the caller the admin and adds each
+ *   member (skipping blocked users), then returns the new conversation id.
+ * - Ends with `router.replace` to /chat/[id] so Back from the new chat
+ *   doesn't come back to this form.
+ */
 import { useState, useCallback } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
@@ -8,11 +26,18 @@ import { useAuth } from '@/context/AuthProvider';
 import { Avatar } from '@/components/Avatar';
 import { ScreenBackground } from '@/components/ScreenBackground';
 
+/** One search result row from the `profiles` table. */
 type Person = { id: string; username: string | null; full_name: string | null; avatar_url: string | null };
 
+/**
+ * Create-group screen: group name input, selected-member chips, people
+ * search with checkboxes, and a pinned "Create group" button.
+ */
 export default function CreateGroupScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  // Form state: group name, search text/results, the chosen members, and
+  // flags for the search spinner, search error and the create request.
   const [name, setName] = useState('');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Person[]>([]);
@@ -21,6 +46,11 @@ export default function CreateGroupScreen() {
   const [searchError, setSearchError] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  /**
+   * Searches profiles by username or full name (case-insensitive "contains"
+   * via `ilike`, max 20, excluding yourself). Queries under 2 characters
+   * clear the results instead. No debounce: each keystroke sends a request.
+   */
   const search = useCallback(async (q: string) => {
     if (!session || q.trim().length < 2) {
       setResults([]);
@@ -44,15 +74,23 @@ export default function CreateGroupScreen() {
     setLoading(false);
   }, [session]);
 
+  /** Keeps the input controlled and fires a search for the new text. */
   function onChangeQuery(q: string) {
     setQuery(q);
     search(q);
   }
 
+  /** Adds or removes a person from the member list (matched by id). */
   function toggleSelect(person: Person) {
     setSelected((prev) => prev.some((p) => p.id === person.id) ? prev.filter((p) => p.id !== person.id) : [...prev, person]);
   }
 
+  /**
+   * Validates (name required, at least one member), calls the
+   * `create_group_conversation` RPC, and on success replaces this screen with
+   * the new group chat. The `creating` check stops a double tap from
+   * creating two groups.
+   */
   async function createGroup() {
     if (!session || creating) return;
     if (name.trim().length === 0) {
@@ -76,10 +114,13 @@ export default function CreateGroupScreen() {
     router.replace({ pathname: '/chat/[id]', params: { id: data as string } });
   }
 
+  // Keeps the native header (title set here). The Create button is absolutely
+  // positioned at the bottom, so the results list has extra bottom padding.
   return (
     <ScreenBackground>
     <View style={styles.container}>
       <Stack.Screen options={{ title: 'New group' }} />
+      {/* Group name. */}
       <TextInput
         style={styles.input}
         placeholder="Group name"
@@ -89,6 +130,7 @@ export default function CreateGroupScreen() {
         autoFocus
       />
 
+      {/* Selected members as a horizontal row of removable chips. */}
       {selected.length > 0 && (
         <FlatList
           horizontal
@@ -109,6 +151,7 @@ export default function CreateGroupScreen() {
         />
       )}
 
+      {/* People search, its loading / error states, and the results list. */}
       <TextInput
         style={styles.input}
         placeholder="Search people to add"
@@ -128,6 +171,7 @@ export default function CreateGroupScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
         renderItem={({ item }) => {
+          // Tapping a row toggles membership; the trailing icon shows the state.
           const isSelected = selected.some((p) => p.id === item.id);
           const label = item.username || item.full_name || 'traveler';
           return (
@@ -146,6 +190,7 @@ export default function CreateGroupScreen() {
         }
       />
 
+      {/* Create button, pinned to the bottom of the screen. */}
       <Pressable onPress={createGroup} disabled={creating} style={[styles.createBtn, creating && styles.createBtnDisabled]}>
         {creating ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.createBtnText}>Create group</Text>}
       </Pressable>
@@ -154,12 +199,15 @@ export default function CreateGroupScreen() {
   );
 }
 
+// Styles use colour, font and radius tokens from constants/theme.ts.
 const styles = StyleSheet.create({
+  // Layout, inputs and member chips
   container: { flex: 1, padding: 20 },
   input: { backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, padding: 12, borderWidth: 1, borderColor: theme.color.surface2, fontFamily: theme.font.bodyRegular, color: theme.color.cream, fontSize: 14, marginBottom: 12 },
   chipRow: { gap: 8, paddingBottom: 12 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.color.surface, borderRadius: 18, paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: theme.color.surface2, maxWidth: 140 },
   chipText: { fontFamily: theme.font.bodyRegular, fontSize: 11.5, color: theme.color.cream, flexShrink: 1 },
+  // Search result rows and states
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
   name: { fontFamily: theme.font.body, fontSize: 14.5, color: theme.color.cream },
   username: { fontFamily: theme.font.mono, fontSize: 11, color: theme.color.gold, marginTop: 2 },
@@ -167,6 +215,7 @@ const styles = StyleSheet.create({
   searchErrorText: { fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.muted },
   searchRetryText: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.gold },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', marginTop: 30 },
+  // Pinned create button
   createBtn: { position: 'absolute', bottom: 24, left: 20, right: 20, backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 14, alignItems: 'center' },
   createBtnDisabled: { opacity: 0.6 },
   createBtnText: { fontFamily: theme.font.body, fontSize: 14.5, color: theme.color.dusk },

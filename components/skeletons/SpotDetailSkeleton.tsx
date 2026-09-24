@@ -1,3 +1,12 @@
+/**
+ * SpotDetailSkeleton, loading placeholder for the spot detail page.
+ *
+ * Purpose: shown by app/spot/[id].tsx while the spot loads.
+ *
+ * How it works: a full-width 300pt hero block, then a padded body with a
+ * creator avatar + name, a title bar, two tag pills and three description
+ * lines of decreasing width.
+ */
 import { View, StyleSheet } from 'react-native';
 import { Skeleton } from '@/components/Skeleton';
 
@@ -26,6 +35,7 @@ export function SpotDetailSkeleton() {
   );
 }
 
+// Layout only; colors come from Skeleton (theme surface2).
 const styles = StyleSheet.create({
   body: { padding: 20 },
   creatorRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

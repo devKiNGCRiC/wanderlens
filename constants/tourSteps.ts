@@ -1,5 +1,20 @@
+/**
+ * Script for the first-run spotlight tour.
+ *
+ * **Purpose**: defines, in order, each step of the tour that introduces a new user
+ * to the app's tabs and key buttons. context/TourProvider.tsx walks through
+ * TOUR_STEPS and components/TourOverlay.tsx draws the highlight and text card.
+ * The tour can be replayed from the Profile menu.
+ *
+ * **Gotcha**: tab indexes and `tab` names must match the tab order in
+ * app/(tabs)/_layout.tsx, and every 'element' id must be registered on a real
+ * view with useTourTarget(id), or that step has nothing to highlight.
+ */
+
+/** The tab route names (files in the app/(tabs) folder) a tour step can switch to. */
 export type TourTab = 'index' | 'map' | 'connect' | 'chat' | 'profile';
 
+/** One tour step: the text shown, which tab to switch to, and what to spotlight. */
 export type TourStep = {
   id: string;
   title: string;
@@ -10,6 +25,7 @@ export type TourStep = {
   target: { kind: 'tab'; index: number } | { kind: 'element'; id: string };
 };
 
+// The tour in display order: feed, camera button, map, trail button, connect, chat, profile.
 export const TOUR_STEPS: TourStep[] = [
   {
     id: 'feed',

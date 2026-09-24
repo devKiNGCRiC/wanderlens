@@ -1,3 +1,27 @@
+/**
+ * Route: /reset-password, "Set a new password" screen reached from the
+ * password-recovery email link.
+ *
+ * Purpose: finishes the forgot-password flow. When the user taps the link in
+ * Supabase's recovery email, AuthProvider parses the access/refresh tokens out
+ * of the deep link into `recoveryTokens`. app/_layout.tsx puts this screen in
+ * its own `<Stack.Protected guard={inRecovery}>` block, which takes priority
+ * over every other guard, so the user lands here even if already signed in.
+ *
+ * How it works:
+ * - On mount, calls `supabase.auth.setSession(recoveryTokens)` to sign in with
+ *   the one-time recovery tokens; until that resolves a spinner is shown.
+ * - Submitting calls `supabase.auth.updateUser({ password })`, which changes
+ *   the password of the now-signed-in user.
+ * - Success, an expired link, or Cancel all end with
+ *   `completePasswordRecovery()`, which clears `recoveryTokens`. That flips the
+ *   guard in _layout, so the router moves the user to the app (or to login if
+ *   Cancel signed them out). This screen never navigates by itself.
+ *
+ * Why: the recovery state is kept separate from `session` (see the comment on
+ * `recoveryTokens` in context/AuthProvider.tsx) so that establishing a session
+ * here doesn't look like a normal login and skip the password step.
+ */
 import { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { supabase } from '@/lib/supabase';
@@ -6,13 +30,21 @@ import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PasswordInput } from '@/components/PasswordInput';
 
+/**
+ * Reset-password screen. Exchanges the recovery tokens for a session, then
+ * lets the user enter and confirm a new password.
+ */
 export default function ResetPassword() {
   const { recoveryTokens, completePasswordRecovery } = useAuth();
+  // `ready` is true once the recovery session is established; the form is
+  // hidden behind a spinner until then. `saving` covers the update request.
   const [ready, setReady] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Sign in with the tokens from the recovery link. If Supabase rejects them
+  // (expired or already used), explain and exit recovery mode on OK.
   useEffect(() => {
     if (!recoveryTokens) return;
     supabase.auth.setSession(recoveryTokens).then(({ error }) => {
@@ -29,7 +61,13 @@ export default function ResetPassword() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recoveryTokens]);
 
+  /**
+   * Validates the two fields and saves the new password.
+   * Side effects: network call to Supabase Auth, native alerts, and on
+   * success `completePasswordRecovery()` (which triggers the guard redirect).
+   */
   async function handleSubmit() {
+    // Client-side checks first: minimum length, then both fields match.
     if (password.length < 6) {
       Alert.alert('Password too short', 'Use at least 6 characters.');
       return;
@@ -38,6 +76,7 @@ export default function ResetPassword() {
       Alert.alert("Passwords don't match", 'Make sure both fields are the same.');
       return;
     }
+    // Update the password for the user signed in via the recovery session.
     setSaving(true);
     const { error } = await supabase.auth.updateUser({ password });
     setSaving(false);
@@ -50,6 +89,11 @@ export default function ResetPassword() {
     ]);
   }
 
+  /**
+   * Abandons the reset: signs out of the recovery session, then (whether or
+   * not sign-out succeeded) clears recovery mode so the guards send the user
+   * back to the signed-out screens.
+   */
   function handleCancel() {
     supabase.auth.signOut().finally(completePasswordRecovery);
   }
@@ -60,6 +104,8 @@ export default function ResetPassword() {
         <Text style={styles.wordmark}>Wanderlens</Text>
         <Text style={styles.title}>Set a new password</Text>
 
+        {/* Spinner until the recovery session is ready, then the form:
+            two password fields, the submit button and a Cancel link. */}
         {!ready ? (
           <ActivityIndicator color={theme.color.gold} style={{ marginTop: 32 }} />
         ) : (
@@ -84,6 +130,7 @@ export default function ResetPassword() {
   );
 }
 
+// Styles use font, colour and radius tokens from constants/theme.ts.
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center', padding: 28 },
   wordmark: { fontFamily: theme.font.display, fontSize: 22, color: theme.color.gold, textAlign: 'center', marginBottom: 6 },

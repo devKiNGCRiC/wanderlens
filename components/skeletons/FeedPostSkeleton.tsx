@@ -1,3 +1,13 @@
+/**
+ * FeedPostSkeleton, loading placeholder for one post in the Feed tab.
+ *
+ * Purpose: shown by the Feed tab (app/(tabs)/index.tsx) while the vertical
+ * feed loads.
+ *
+ * How it works: stacks Skeleton blocks in the post's shape: a small avatar
+ * and name bar, a 320pt image block, then three short text bars. It renders
+ * one post; the Feed screen decides how many to show.
+ */
 import { View, StyleSheet } from 'react-native';
 import { Skeleton } from '@/components/Skeleton';
 import { theme } from '@/constants/theme';
@@ -22,6 +32,7 @@ export function FeedPostSkeleton() {
   );
 }
 
+// Layout only (spacing mirrors the real post card); colors come from Skeleton.
 const styles = StyleSheet.create({
   card: { marginTop: 24, paddingHorizontal: 20 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },

@@ -1,3 +1,23 @@
+/**
+ * Route: /chat, the Chat tab: the conversation list.
+ *
+ * Purpose: lists the user's direct and group conversations in two segments:
+ * Inbox (accepted conversations) and Requests (message requests from people
+ * the user hasn't accepted yet). Tapping a row opens /chat/[id]; long-pressing
+ * an Inbox row opens options (pin, mute, favourite, archive, mark unread,
+ * clear, delete). Header buttons open archived chats and a compose menu
+ * (new message / new group). Reachable under guard 2 in app/_layout.tsx.
+ *
+ * How it works:
+ * - On every focus, calls the `list_conversations` RPC twice in parallel,
+ *   once per status ('accepted' and 'request'), then re-syncs the Chat tab
+ *   badge through ChatProvider.refreshUnreadCount.
+ * - Accepting a request updates the user's own `conversation_members` row;
+ *   declining and every per-conversation option go through RPCs
+ *   (`decline_conversation_request`, `set_conversation_flag`, etc.), so the
+ *   change applies only to the viewer's side of the conversation.
+ * - Has explicit loading (skeleton), error (message + Retry) and empty states.
+ */
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable, FlatList, StyleSheet, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -12,13 +32,18 @@ import { ConversationRow, type ConversationSummary } from '@/components/chat/Con
 import { ConversationOptionsSheet, type ConversationAction } from '@/components/chat/ConversationOptionsSheet';
 import { ConversationRowSkeletonList } from '@/components/skeletons/ConversationRowSkeleton';
 
+// Segment tabs; `Segment` is the union type 'Inbox' | 'Requests'.
 const SEGMENTS = ['Inbox', 'Requests'] as const;
 type Segment = typeof SEGMENTS[number];
 
+/** Chat tab screen component (default export = the route). */
 export default function ChatListScreen() {
   const router = useRouter();
   const { session } = useAuth();
   const { refreshUnreadCount } = useChat();
+  // Active segment, the two conversation lists, load/error flags, the
+  // conversation whose options sheet is open (null = closed), and the
+  // compose menu's visibility.
   const [segment, setSegment] = useState<Segment>('Inbox');
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [requests, setRequests] = useState<ConversationSummary[]>([]);
@@ -27,6 +52,13 @@ export default function ChatListScreen() {
   const [optionsFor, setOptionsFor] = useState<ConversationSummary | null>(null);
   const [composeMenuVisible, setComposeMenuVisible] = useState(false);
 
+  /**
+   * Loads both lists. If either RPC fails, switches to the error state
+   * (which offers Retry) instead of showing a half-loaded screen. On success
+   * it also refreshes the tab badge, since unread counts may have changed.
+   * Wrapped in useCallback so it can be a stable dependency of the focus
+   * effect below and be reused after each action.
+   */
   const load = useCallback(async () => {
     if (!session) return;
     setLoading(true);
@@ -46,18 +78,33 @@ export default function ChatListScreen() {
     refreshUnreadCount();
   }, [session]);
 
+  // Reload whenever the tab gains focus, e.g. when coming back from a chat
+  // where messages were read, so previews and unread markers are current.
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  /**
+   * Accepts a message request: removes it from Requests right away, sets the
+   * viewer's own membership row to 'accepted', then reloads so the
+   * conversation appears in Inbox.
+   */
   async function acceptRequest(item: ConversationSummary) {
     setRequests((prev) => prev.filter((r) => r.conversation_id !== item.conversation_id));
     await supabase.from('conversation_members').update({ status: 'accepted' }).eq('conversation_id', item.conversation_id).eq('user_id', session!.user.id);
     load();
   }
+  /** Declines a message request: removes it locally, then calls the decline RPC. */
   async function declineRequest(item: ConversationSummary) {
     setRequests((prev) => prev.filter((r) => r.conversation_id !== item.conversation_id));
     await supabase.rpc('decline_conversation_request', { p_conversation_id: item.conversation_id });
   }
 
+  /**
+   * Runs the option picked in ConversationOptionsSheet for `optionsFor`.
+   * Each pair of toggles (pin/unpin, mute/unmute, ...) maps to one
+   * set_conversation_flag call with true or false. Every action except
+   * delete reloads the list afterwards; delete asks for confirmation first
+   * and reloads from inside the confirm handler.
+   */
   async function handleAction(action: ConversationAction) {
     if (!optionsFor) return;
     const id = optionsFor.conversation_id;
@@ -90,10 +137,16 @@ export default function ChatListScreen() {
     load();
   }
 
+  // The list shown depends on the active segment.
   const data = segment === 'Inbox' ? conversations : requests;
 
+  // Rows: Inbox rows open the chat on tap and the options sheet on long
+  // press; Request rows open the chat on tap and add Accept / Decline
+  // buttons underneath (no long-press options).
   return (
     <ScreenBackground>
+      {/* Header: title, archived + compose buttons, and the segmented
+          control (Requests shows a count badge) */}
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Text style={styles.title}>Chat</Text>
@@ -118,6 +171,7 @@ export default function ChatListScreen() {
         </View>
       </View>
 
+      {/* Body: loading skeleton, error with Retry, or the conversation list */}
       {loading ? (
         <ConversationRowSkeletonList />
       ) : loadError ? (
@@ -165,6 +219,8 @@ export default function ChatListScreen() {
         />
       )}
 
+      {/* Long-press options for one conversation; the sheet's labels
+          (pin vs unpin, etc.) follow that conversation's current flags */}
       {optionsFor && (
         <ConversationOptionsSheet
           visible={!!optionsFor}
@@ -177,6 +233,7 @@ export default function ChatListScreen() {
         />
       )}
 
+      {/* Compose menu from the header's pencil button */}
       <ActionSheet
         visible={composeMenuVisible}
         onClose={() => setComposeMenuVisible(false)}
@@ -189,7 +246,9 @@ export default function ChatListScreen() {
   );
 }
 
+// Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
 const styles = StyleSheet.create({
+  // Header, icon buttons and segmented control
   header: { paddingHorizontal: 24, paddingTop: 60, paddingBottom: 8 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   title: { fontFamily: theme.font.display, fontSize: 26, color: theme.color.cream },
@@ -202,6 +261,7 @@ const styles = StyleSheet.create({
   segmentTextActive: { fontFamily: theme.font.body, color: theme.color.dusk },
   badge: { backgroundColor: theme.color.ember, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   badgeText: { fontFamily: theme.font.body, fontSize: 9, color: theme.color.cream },
+  // List separator, empty / error states, and request Accept / Decline buttons
   separator: { height: 1, backgroundColor: theme.color.surface2, marginLeft: 62 },
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 40 },
   errorState: { alignItems: 'center' },
