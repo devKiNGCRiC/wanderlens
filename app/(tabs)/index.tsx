@@ -3,7 +3,7 @@
  *
  * Purpose: the first screen a signed-in, onboarded user sees (guard 2 in
  * app/_layout.tsx). A golden-hour hero greets the user, followed by
- * personalised horizontal strips ("Spots near you", "Photographers nearby")
+ * personalised horizontal strips ("Spots near you", "Photographers who've shot nearby")
  * and then a vertical, Instagram-style feed of community spots with like,
  * comment and save actions. A camera FAB opens the geo-tagged spot camera.
  *
@@ -11,7 +11,10 @@
  * - On every focus it reloads, in parallel: the feed (`feed_spots` RPC), the
  *   user's liked and saved spot ids (`spot_likes`, `saved_spots` tables) and
  *   the device location. Once location is known it calls the `nearby_spots`
- *   and `nearby_photographers` RPCs (30 km radius).
+ *   and `nearby_photographers` RPCs (30 km radius). nearby_photographers
+ *   returns people who have POSTED a spot within that radius, closest
+ *   first; it doesn't know where users are right now (profiles have no
+ *   coordinates), hence the strip's "who've shot nearby" wording.
  * - A Supabase RPC is a Postgres function called with supabase.rpc(); the
  *   project uses RPCs for reads so joined data (creator profile, like and
  *   comment counts) arrives in one round trip instead of N+1 queries.
@@ -50,7 +53,7 @@ import { FeedPostSkeleton } from '@/components/skeletons/FeedPostSkeleton';
 
 /** One row from the nearby_spots RPC, shown as a polaroid in "Spots near you". */
 type NearbySpot = { id: string; title: string; best_time: string | null; photo_url: string | null };
-/** One row from the nearby_photographers RPC, shown as a chip in "Photographers nearby". */
+/** One row from the nearby_photographers RPC, shown as a chip in "Photographers who've shot nearby". */
 type Photographer = { id: string; username: string | null; full_name: string | null; avatar_url: string | null; user_type: string | null; photography_genres: string[] | null };
 /**
  * One row from the feed_spots RPC: a spot plus its creator's profile fields
@@ -290,11 +293,13 @@ export default function FeedScreen() {
               </View>
             )}
 
-            {/* "Photographers nearby": chips linking to public profiles. The
-                tag shows their first genre, else their formatted user type. */}
+            {/* "Photographers who've shot nearby": people with a spot posted
+                near the user (not people physically near them now), closest
+                first. Chips link to public profiles; the tag shows their
+                first genre, else their formatted user type. */}
             {photographers.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Photographers nearby</Text>
+                <Text style={styles.sectionTitle}>Photographers who&apos;ve shot nearby</Text>
                 <FlatList
                   horizontal showsHorizontalScrollIndicator={false} data={photographers} keyExtractor={(i) => i.id}
                   contentContainerStyle={styles.peopleRow}
