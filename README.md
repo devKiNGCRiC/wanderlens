@@ -1,289 +1,294 @@
-# Wanderlens 🌍📸
+# Wanderlens
 
-A cross-platform mobile app built with Expo and React Native that puts community
-first: a crowdsourced, geo-tagged photo-spot map, mutual (double-opt-in)
-connections between travelers and photographers, and full chat — with a
-lightweight AI trail generator and caption assistant layered on top, not the
-centerpiece. See [`Wanderlens_Abstract.md`](Wanderlens_Abstract.md) and
-[`wanderlens-project-doc.md`](wanderlens-project-doc.md) for the full project
-background, and [`ROADMAP.md`](ROADMAP.md) for what's built vs. deferred.
+A social discovery app for travelers and photographers, built with Expo and
+React Native as an MCA capstone project.
 
-## Overview
+Most travel apps put an AI concierge at the center and treat the social side
+as an afterthought. **Wanderlens does the opposite: community and connection
+are the product, and AI is a supporting feature.** It rests on three pillars:
 
-Wanderlens is a social discovery platform for travelers and photographers. It
-enables users to:
+1. **A crowdsourced photo-spot map.** Real photographers post geo-tagged
+   spots with tips. Nothing on the map is AI-generated.
+2. **A connection layer.** Meet travelers and photographers by shared
+   destination, dates or genre. Connections are mutual and agreed by both
+   sides; there are no followers and no follower counts.
+3. **Lightweight AI grounded in the app's own data.** A trail generator that
+   sequences *real community spots* into a photo outing, and a caption
+   assistant. It is not a general chatbot.
 
-- **Discover** nearby photography spots on an interactive map, added by real
-  community members — not AI-generated suggestions
-- **Share** photos with genre tags, threaded comments, and likes
-- **Connect** with other travelers and photographers by destination, dates, or
-  genre — connections are mutual and both-sides-agreed, not a follower count
-- **Message** 1:1 or in groups — photos, video, voice notes, documents,
-  location and spot sharing, replies, reactions, and search
-- **Generate a photo trail** with AI that sequences real community spots
-  (not invented ones), and get AI caption suggestions for a new post
-- **Get notified** in-app for connection requests and social activity (likes,
-  comments, replies, shares)
-- **Save** favorite spots for later, and manage their own account fully,
-  including deleting it
+[`ROADMAP.md`](ROADMAP.md) lists what is built and what was deliberately
+deferred.
+
+---
 
 ## Features
 
-- 📍 **Location-based discovery** — nearby spots via PostGIS-backed queries
-- 🗺️ **Interactive map** — MapLibre with clustering; add a spot via GPS,
-  search, or tap-to-pin
-- 🎨 **Feed** — personalized strips, a filter sheet, and a vertical feed
-- 💬 **Chat** — 1:1 and group messaging with every common media type, replies,
-  reactions, search, block/report, and group management
-- 🔔 **Notifications** — an in-app bell covering connection and social events
-- 🤝 **Connections** — discover people, send/accept requests, mutual only
-- 🤖 **AI trail generator & caption assistant** — grounded in the app's own
-  spot data, served through Supabase Edge Functions (see below), never
-  calling the AI vendor from the client
-- 👤 **Profiles** — photographer/traveler type, genres, travel style, home
-  city, with edit and public view
-- 🔐 **Full account lifecycle** — email/password auth, onboarding, a
-  deep-link-based forgot-password flow, and account deletion that anonymizes
-  personal data while preserving the spots a user contributed to the map
-- 🛠️ **Error monitoring** — Sentry, disabled in local development
-- 🎭 **User types** — distinct traveler / photographer / both profiles
+### Discover
+- **Feed**: a golden-hour/blue-hour countdown for your location, a "Spots
+  near you" strip, a "Photographers who've shot nearby" strip, and a
+  vertical feed with genre and time-of-day filters.
+- **Map**: every spot in the area on screen, loaded as you pan and zoom, with
+  pins that group spots a few metres apart. Tap a pin for a card with the
+  photo and tips.
+- **Spot detail**: photo, tips, likes, saves, threaded comments (edit and
+  delete your own), sharing, and "View on map".
 
-## Tech Stack
+### Share
+- **Add a spot** with its location from GPS, a place search, or by tapping
+  the map. Location lookups fall back to OpenStreetMap when the phone's
+  geocoder fails, which it does for disputed regions such as Arunachal
+  Pradesh.
+- **Geo-tag camera**: shoot in the app to record coordinates, altitude, the
+  place name and address, and the current weather, and save a "stamped" copy
+  with that information to your gallery.
+- **Photo styles**: frames such as Polaroid, Film Retro, Vintage, Noir,
+  Golden Hour and Blue Hour, with an optional caption. Use them on a new
+  post, or in a standalone studio that saves the result to your gallery.
+- **AI caption suggestions** for a new post.
 
-- **Frontend**: React Native 0.81.5, React 19.1, Expo SDK 54
-- **Language**: TypeScript 5.9, `strict: true`
-- **Navigation**: Expo Router 6 (file-based routing)
-- **State**: React Context for auth, Zustand for ephemeral cross-screen
-  handoff (server data is fetched per-screen, no global cache layer)
-- **Backend**: Supabase — Postgres, Auth, Storage, Realtime, Edge Functions
-  (Deno), Row Level Security enforced on every table
-- **AI**: Groq (`openai/gpt-oss-120b`) for trail planning, Gemini
-  (`gemini-3.1-flash-lite`) for captions — both called from Supabase Edge
-  Functions, never from the client; per-user rate-limited
-- **Maps**: `@maplibre/maplibre-react-native` with OpenFreeMap tiles —
-  deliberately not `react-native-maps`, which needs a billed Google Maps key
-  even for non-Google tiles
-- **Animation**: `react-native-reanimated` 4 + `react-native-worklets`
-- **Error monitoring**: `@sentry/react-native`
-- **Platform support**: iOS, Android (this app uses `expo-dev-client` and a
-  native map module, so **Expo Go cannot run it** — see Getting Started)
+### Connect
+- **Discover people** by genre, or by **trip matching**: people whose planned
+  trip shares a destination and overlapping dates with yours.
+- **Mutual connections**: send, accept, decline, cancel and remove requests.
+- **Public profiles** with each person's spots, and block and report.
 
-## Getting Started
+### Chat
+- 1:1 and group chats with photos, photo galleries, video, voice notes,
+  documents, and shared locations and spots.
+- Replies, reactions, read receipts, typing indicators, message search,
+  archiving, and message requests from people you aren't connected to.
+- Group management: name, photo, description, members and admins.
+
+### Plan
+- **AI photo trail**: pick a genre and a number of stops (3 to 6), and the AI
+  orders real nearby spots into an outing with a tip for each stop. Save the
+  trails you like to **My trails**.
+- **Notes**: private notes, which can be linked to a spot.
+- **Saved spots**: your bookmarked spots.
+
+### Account
+- Email/password sign-up with a live username check, onboarding, and
+  forgot-password through an email deep link.
+- An in-app **notification bell** for connection requests, likes, comments,
+  replies, shares and message requests.
+- A **first-run tour** that highlights the key controls, and can be replayed
+  from the Profile menu.
+- **Account deletion** that removes personal data and anonymizes the profile
+  to "Deleted user", so spots stay on the map for the community.
+
+---
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Runtime | Expo SDK 54, React Native 0.81.5, React 19.1 |
+| Language | TypeScript, `strict: true` |
+| Routing | Expo Router 6 (file-based, `app/`) |
+| Backend | Supabase: Postgres + PostGIS, Auth, Storage, Realtime, Edge Functions (Deno). Row Level Security on every table |
+| State | React Context for auth, chat and notifications; Zustand to pass values between screens; each screen fetches its own server data |
+| Maps | `@maplibre/maplibre-react-native` with free [OpenFreeMap](https://openfreemap.org) tiles |
+| Geocoding | `expo-location`, with [Nominatim](https://nominatim.org) (OpenStreetMap) as a fallback |
+| AI | Groq `openai/gpt-oss-120b` (trails), Gemini `gemini-3.1-flash-lite` (captions), both called only from Edge Functions |
+| Other APIs | [Open-Meteo](https://open-meteo.com) (weather), [sunrise-sunset.org](https://sunrise-sunset.org) (golden hour) |
+| Animation | `react-native-reanimated` 4 + `react-native-worklets` |
+| Error monitoring | `@sentry/react-native` (off in development) |
+
+Every external service is free or on a free tier. That was a project
+constraint, and it is why the map uses MapLibre and not `react-native-maps`,
+which needs a billed Google Maps key even for non-Google tiles.
+
+**Design.** The app has one dark "golden hour / blue hour" theme on purpose.
+It does not follow the phone's light/dark setting. Colors, fonts and radii
+all come from `constants/theme.ts`.
+
+---
+
+## Getting started
+
+> **Expo Go cannot run this app.** It uses `expo-dev-client` and a native map
+> module (MapLibre) that Expo Go doesn't include, so you need a development
+> build.
 
 ### Prerequisites
+- Node.js 20.19.4 or newer (React Native 0.81 requires it), and npm
+- Android: Android Studio with an SDK and an emulator or device. iOS: Xcode
+  (macOS only). Or build in the cloud with EAS (`eas.json` is included).
+- A Supabase project (the free tier is enough). See [Backend setup](#backend-setup).
 
-- Node.js 18+ and npm
-- For Android: Android Studio + SDK, or use a cloud build (see below)
-- For iOS: Xcode and CocoaPods (macOS only)
-- A Supabase project (free tier is enough) if you're standing up your own
-  backend rather than pointing at an existing one
+### Install and run
 
-### Installation
+```bash
+git clone https://github.com/devKiNGCRiC/wanderlens.git
+cd wanderlens
+npm install
+```
 
-1. **Clone the repository**
+Create a `.env` file in the project root:
 
-   ```bash
-   git clone https://github.com/devKiNGCRiC/wanderlens
-   cd Wanderlens
-   ```
+```
+EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+EXPO_PUBLIC_SENTRY_DSN=your_sentry_dsn   # optional
+```
 
-2. **Install dependencies**
+`EXPO_PUBLIC_*` values are compiled into the app and can be read by anyone
+who has it. Only put public values here. The anon key is safe because Row
+Level Security protects every table. **The AI keys do not go in `.env`.**
+They are Supabase secrets (see below).
 
-   ```bash
-   npm install
-   ```
+Build and install the development app once, then start the dev server:
 
-3. **Configure environment variables** — create a `.env` file (not
-   `.env.local`) in the project root:
+```bash
+npm run android      # or: npm run ios   (compiles the development app)
+npm start            # afterwards: live reload for JavaScript changes
+```
 
-   ```
-   EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
-   EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   EXPO_PUBLIC_SENTRY_DSN=your_sentry_dsn   # optional — omit to skip error monitoring
-   ```
+You only need to rebuild after adding a native dependency or changing a
+config plugin in `app.config.js`.
 
-   `EXPO_PUBLIC_*` values are inlined into the JS bundle at build time, so
-   only ever put something here that's safe to be public — the anon key is
-   fine precisely because RLS is enforced on every table. **The Groq and
-   Gemini AI keys are not client env vars** — they live only as Supabase Edge
-   Function secrets (see Backend Setup below).
+### Backend setup
 
-4. **Build a dev client — you can't use Expo Go for this project.**
-   `expo-dev-client` and the native MapLibre module aren't in Expo Go.
+> **Known gap:** `supabase/migrations/` does **not** hold the full schema yet.
+> The core tables (`profiles`, `spots`, `spot_likes`, `spot_comments`,
+> `comment_likes`, `saved_spots`, `connections`, `trails`) and the older RPCs
+> (`feed_spots`, `nearby_spots`, `discover_people`, `get_spot`,
+> `get_spot_comments`, `get_saved_spots`, `get_connection_status`,
+> `handle_new_user`) were created in the Supabase dashboard before migrations
+> were tracked. The migrations cover everything added after that: chat,
+> notifications, AI quotas, account deletion, trips, geo-tags, notes, and
+> `nearby_photographers`. Setting up a fresh project from this repo alone is
+> not possible yet.
 
-   ```bash
-   npm run android   # or npm run ios (macOS only)
-   ```
+On the existing project:
 
-   This compiles and installs a dev client once. After that:
-
-   ```bash
-   npm start
-   ```
-
-   connects to the already-installed dev client and gives you live reload for
-   any JS change — no rebuild needed unless you add a native dependency or
-   change a config plugin.
-
-### Backend setup (if standing up your own Supabase project)
-
-1. Run every file in `supabase/migrations/` in order, in the Supabase SQL
-   editor (they're not yet tracked by the Supabase CLI's migration history,
-   so `supabase db push` isn't used here — apply them by hand).
-2. `supabase login`, `supabase init`, `supabase link --project-ref <your-ref>`.
-3. Set the AI Edge Function secrets:
+1. Apply new migration files **by hand** in the Supabase SQL Editor, in
+   filename order. Don't use `supabase db push`: the remote migration
+   history is empty, so it would try to replay every migration and fail on
+   objects that already exist. If the app then reports a missing column,
+   run `notify pgrst, 'reload schema';` so the API picks up the change.
+2. Link the CLI: `supabase login`, then `supabase link --project-ref <your-ref>`.
+3. Set the AI secrets:
    ```bash
    supabase secrets set GROQ_API_KEY=your_groq_key GEMINI_API_KEY=your_gemini_key
    ```
 4. Deploy the Edge Functions:
    ```bash
-   supabase functions deploy generate-trail
-   supabase functions deploy generate-caption
-   supabase functions deploy delete-account
+   supabase functions deploy generate-trail generate-caption delete-account
    ```
-   `delete-account` needs no extra secret — it uses the service-role key
-   Supabase auto-injects into every Edge Function.
+   `delete-account` needs no extra secret. It uses the service-role key that
+   Supabase gives every Edge Function.
 5. In **Authentication → URL Configuration → Redirect URLs**, add
-   `wanderlens://reset-password` so the forgot-password email link works.
+   `wanderlens://reset-password` so the password-reset email link opens the
+   app.
 
-## Project Structure
+---
+
+## How it works
+
+### Navigation and auth gating
+Every file in `app/` is a route. `(auth)` and `(tabs)` are route groups (the
+parentheses don't appear in the URL), and `[id].tsx` files are dynamic
+routes. Access control lives in one place, `app/_layout.tsx`, which has four
+`<Stack.Protected>` blocks:
+
+1. Password recovery in progress: only the reset-password screen
+2. Signed in and onboarded: the whole app
+3. Signed in, not onboarded: only onboarding
+4. Signed out: login, sign-up and forgot-password
+
+Exactly one block is active at a time. When the user signs in or out, the
+router moves them automatically. **A new screen must be registered inside
+the right block,** or it can be reached regardless of whether the user is
+signed in.
+
+### Data
+- **Reads go through RPCs** (Postgres functions such as `feed_spots` and
+  `nearby_spots`) that return joined data in one request. **Writes go
+  straight to tables.**
+- **Row Level Security is the security boundary.** The client is not trusted.
+- Screens reload with `useFocusEffect` each time they come into view, so
+  data is never stale after navigating back.
+- Chat uses Supabase Realtime for new messages, read receipts and typing
+  indicators.
+
+### AI
+The app calls Supabase Edge Functions (`generate-trail`, `generate-caption`),
+never Groq or Gemini directly. Each function checks the user's login token
+and a per-user hourly and daily limit (`consume_ai_quota`) before calling the
+AI service. The API keys exist only as Supabase secrets. The trail generator
+only sends real spots from the database to the model, and discards any stop
+the model returns that doesn't match one of them.
+
+---
+
+## Project structure
 
 ```
-Wanderlens/
-├── app/                          # expo-router routes — one screen per file
-│   ├── (auth)/                   # Signed-out: login, signup, forgot-password
-│   ├── (tabs)/                   # Feed, Map, Connect, Chat, Profile
-│   ├── chat/[id].tsx             # 1:1 and group conversation screen
-│   ├── group/[id].tsx            # Group management
-│   ├── spot/[id].tsx             # Spot detail
-│   ├── user/[id].tsx             # Public profile
-│   ├── add-spot.tsx              # Add a spot (GPS / search / tap-to-pin)
-│   ├── edit-profile.tsx          # Edit profile
-│   ├── reset-password.tsx        # Deep-link landing screen for password reset
-│   ├── notifications.tsx         # Notification bell
-│   ├── onboarding.tsx            # Post-signup onboarding
-│   └── about.tsx                 # About screen (from the profile menu)
-├── components/                   # Shared UI — chat/ holds chat-specific ones
-├── context/                      # AuthProvider, ChatProvider, NotificationsProvider
-├── hooks/                        # useUserLocation, use-color-scheme, etc.
-├── lib/                          # supabase.js (client), ai.ts, chat.ts, media.ts
-├── store/                        # Zustand — e.g. locationPicker.ts
-├── constants/                    # theme.ts (design tokens), countries.ts
+wanderlens/
+├── app/                      # Routes: one screen per file
+│   ├── _layout.tsx           # Fonts, providers, the four auth guards
+│   ├── (auth)/               # login, signup, forgot-password
+│   ├── (tabs)/               # Feed, Map, Connect, Chat, Profile
+│   ├── spot/[id].tsx         # Spot detail
+│   ├── user/[id].tsx         # Public profile
+│   ├── chat/                 # Conversation screen, archived chats
+│   ├── group/[id].tsx        # Group info and management
+│   ├── add-spot.tsx          # New spot (GPS / search / tap-to-pin)
+│   ├── spot-camera.tsx       # Geo-tag camera
+│   ├── pick-location.tsx     # Tap-to-pin map
+│   ├── trail-generator.tsx   # AI photo trail
+│   ├── my-trails.tsx         # Saved trails
+│   ├── photo-studio.tsx      # Photo styles
+│   ├── notes.tsx, note-editor.tsx
+│   ├── notifications.tsx, saved.tsx, onboarding.tsx, edit-profile.tsx, ...
+├── components/               # Shared UI (chat/ and skeletons/ subfolders)
+├── context/                  # Auth, Chat, Notifications, Tour providers
+├── hooks/                    # useUserLocation, useGoldenHour, ...
+├── lib/                      # Supabase client, AI, geocoding, helpers
+├── store/                    # Zustand stores for screen-to-screen handoff
+├── constants/                # theme.ts (design tokens), countries, tour steps
 ├── supabase/
-│   ├── migrations/               # Full schema + RLS history, in order
-│   └── functions/                # Edge Functions: generate-trail,
-│                                  # generate-caption, delete-account
-├── package.json
-├── app.json / app.config.js      # Expo config (static + plugin-appending)
-├── eas.json                      # Build profiles: development, preview, production
-└── tsconfig.json
+│   ├── migrations/           # Schema changes since tracking began
+│   └── functions/            # Edge Functions: generate-trail,
+│                             #   generate-caption, delete-account
+├── app.json, app.config.js   # Expo config (static + config plugins)
+└── eas.json                  # EAS build profiles
 ```
 
-## Key Dependencies
+Every code file begins with a comment explaining its purpose, and each
+function and major block has a short explanation, so the code can be read
+file by file.
 
-**Core**: `expo`, `react`, `react-native`, `typescript`
-
-**Navigation**: `expo-router`, `@react-navigation/*`
-
-**Backend**: `@supabase/supabase-js`, `@react-native-async-storage/async-storage`
-
-**UI**: `expo-linear-gradient`, `@expo/vector-icons`, `expo-image`,
-`react-native-reanimated`, `react-native-gesture-handler`,
-`react-native-svg`
-
-**Map & location**: `@maplibre/maplibre-react-native`, `expo-location`
-
-**Media**: `expo-image-picker`, `expo-video`, `base64-arraybuffer`
-
-**Error monitoring**: `@sentry/react-native`
-
-**State**: `zustand`
+---
 
 ## Development
 
 ```bash
-npm start          # expo start — connects to an existing dev client
-npm run android    # expo run:android — builds and installs a dev client
-npm run ios        # expo run:ios — macOS only
-npm run lint        # expo lint
-npx tsc --noEmit    # type check (lint alone won't catch these)
+npm start            # dev server for the installed development app
+npm run android      # build and install the development app (Android)
+npm run ios          # same for iOS (macOS only)
+npm run lint         # ESLint (expo lint)
+npx tsc --noEmit     # type check; lint does not catch type errors
 ```
 
-There is no test framework installed yet — lint + type-check is the current
-bar before calling a change done. See `.claude/rules/testing.md` for the
-manual verification checklist this project uses instead, and for what a
-future test setup would start with.
+There are no automated tests yet. A change counts as done when lint and the
+type check pass and it has been checked by hand on a development build.
+[`.claude/rules/testing.md`](.claude/rules/testing.md) has the manual
+checklist. The type check currently reports three known errors in unused
+Expo starter-template files (`components/ui/collapsible.tsx`,
+`hooks/use-theme-color.ts`).
 
-### File-based routing
-
-Screens are files in `app/`. `(auth)` and `(tabs)` are route groups —
-parentheses don't appear in the URL. `[id].tsx` is a dynamic segment. Auth
-gating is centralized in `app/_layout.tsx` via `<Stack.Protected guard={...}>`
-for four states: password-recovery-in-progress, signed out, signed in but not
-onboarded, and fully onboarded. See
-[Expo Router docs](https://docs.expo.dev/router/introduction/).
-
-## Authentication & account lifecycle
-
-- Email/password auth via Supabase, with extended profile info (genres,
-  travel style, home city, user type) collected during onboarding
-- A deep-link-based **forgot-password** flow (`app/(auth)/forgot-password.tsx`
-  → email → `app/reset-password.tsx`), kept independent of normal session
-  state so a recovery link can't get silently routed into the app before a
-  new password is set
-- **Account deletion**, reachable from the profile menu: personal data
-  (saved spots, likes, connections, trails, notifications) is removed, and
-  the profile is anonymized to "Deleted user" rather than deleted outright —
-  spots a user contributed stay on the map, since they have value to the
-  community beyond their original poster. The `auth.users` row is
-  soft-deleted (`auth.admin.deleteUser(id, true)`), which hashes the
-  credentials and purges sessions without breaking anything still
-  referencing the now-anonymized profile row
-
-## Database schema
-
-Supabase Postgres, with Row Level Security enforced on every table. Major
-areas, all under `supabase/migrations/`:
-
-- **Core**: `profiles`, `spots`, `spot_likes`, `spot_comments`,
-  `comment_likes`, `saved_spots`, `connections`, `trails`
-- **Chat**: `conversations`, `conversation_members`, `messages` — 1:1 and
-  group, every media type, replies, reactions
-- **Notifications**: `notifications`, populated by triggers on connection and
-  social events
-- **AI usage**: `ai_usage` — per-user, per-feature rate limiting for the two
-  AI Edge Functions
-- Location queries (`nearby_spots`, `nearby_photographers`) are backed by
-  PostGIS on a `geography` column
-
-## Error monitoring
-
-`@sentry/react-native` is wired in (`app/_layout.tsx`, `metro.config.js`, and
-the `@sentry/react-native/expo` config plugin), disabled whenever `__DEV__` is
-true so local development never spams the project. Requires
-`EXPO_PUBLIC_SENTRY_DSN` to be set wherever the app is built — see Getting
-Started above and `.claude/skills/release/SKILL.md` for the full release
-checklist.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+---
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE)
-file for details.
+MIT, see [LICENSE](LICENSE).
 
-## Support
+## Resources
 
-For issues, feature requests, or questions, please open an issue on the
-repository.
-
-## Additional resources
-
-- [Expo Documentation](https://docs.expo.dev/)
-- [Expo v54.0.0 Release](https://docs.expo.dev/versions/v54.0.0/) — this
-  project targets this exact version; API shapes from memory are often wrong
-- [React Native Documentation](https://reactnative.dev/)
-- [Supabase Documentation](https://supabase.com/docs)
-- [MapLibre Documentation](https://maplibre.org/)
+- [Expo SDK 54 docs](https://docs.expo.dev/versions/v54.0.0/). This project
+  targets this exact version.
+- [Expo Router](https://docs.expo.dev/router/introduction/)
+- [Supabase docs](https://supabase.com/docs)
+- [MapLibre React Native](https://github.com/maplibre/maplibre-react-native)
