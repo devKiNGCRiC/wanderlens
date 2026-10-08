@@ -7,7 +7,8 @@
  *
  * How it works:
  * - Checks username availability live as the user types: after a 500 ms
- *   pause it queries the `profiles` table for a matching username.
+ *   pause it asks the `is_username_available` RPC (profiles themselves are
+ *   only readable once signed in).
  * - Calls supabase.auth.signUp, passing full_name and username as user
  *   metadata. The `handle_new_user` database trigger uses that metadata to
  *   create the user's `profiles` row (see .claude/rules/supabase.md).
@@ -63,11 +64,12 @@ export default function SignUp() {
     let cancelled = false;
 
     const timeout = setTimeout(async () => {
-      // maybeSingle(): zero rows is a normal outcome here (name is free), so
-      // it returns null instead of throwing like .single() would.
-      const { data } = await supabase.from('profiles').select('id').eq('username', clean).maybeSingle();
+      // Profiles are only readable signed in, so the check goes through a
+      // yes/no RPC (20260945000000_signed_in_only_reads.sql) rather than a
+      // table read. On error, show no indicator rather than guess.
+      const { data, error } = await supabase.rpc('is_username_available', { p_username: clean });
       if (!cancelled) {
-        setUsernameStatus(data ? 'taken' : 'available');
+        setUsernameStatus(error ? 'idle' : data ? 'available' : 'taken');
       }
     }, 500);
 
