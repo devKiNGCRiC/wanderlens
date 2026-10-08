@@ -6,8 +6,14 @@ because this is native.
 
 ## Schema in use
 
-**Tables, with client code today:** `profiles`, `spots`, `spot_likes`,
-`spot_comments`, `comment_likes`, `saved_spots`, `connections`, `trails`
+**Tables, with client code today:** `profiles`, `spots`, `spot_photos`,
+`spot_likes`, `spot_comments`, `comment_likes`, `saved_spots`, `connections`,
+`trails`, `notes`, `blocked_users`
+
+**`spot_photos`** stores only `storage_path`; build the URL with
+`getPublicUrl` (`lib/spotPhotos.ts`). Never store a client-supplied URL — a
+trigger on `spots` (`20260941000000_security_hardening.sql`) rejects photo
+URLs that aren't the owner's own files in this project's bucket.
 
 **Chat feature (built):** `conversations`, `conversation_members`, `messages` —
 see `.claude/rules/architecture.md` and the migrations under
@@ -35,7 +41,8 @@ the same migration — `alter table notifications drop constraint if exists
 notifications_type_check` then re-`add constraint` with the full list,
 old + new values together.
 
-**RPCs:** `feed_spots`, `nearby_spots`, `nearby_photographers`, `discover_people`,
+**RPCs:** `explore_spots` (Feed sorting), `get_spot_likers`, `my_blocked_ids`,
+`feed_spots` (legacy, no longer called), `nearby_spots`, `nearby_photographers`, `discover_people`,
 `get_spot`, `get_spot_comments`, `get_saved_spots`, `get_connection_status`,
 `get_notifications`, `get_unread_notification_count`, `mark_notifications_read`.
 Also a `handle_new_user` trigger that auto-creates a `profiles` row on signup.

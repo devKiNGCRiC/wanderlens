@@ -3,6 +3,14 @@
 Status as of the MCA capstone build. Source of truth for "has this already been
 considered" before proposing or building a feature — check here first.
 
+## Recently built
+
+- **Multi-photo spots** — 1–10 photos per spot with a chosen cover; the map shows the cover, the Feed and Spot Detail show a swipeable carousel, Captures grids show a photo-count badge (`20260939000000_spot_photos.sql`).
+- **Liked by** — tap a like count to see who liked a spot (`get_spot_likers`).
+- **Feed sorting** — For you / Recent / Nearby / Most liked / Most discussed with a time window (`explore_spots`, `20260940000000_explore_and_likers.sql`).
+- **Deleted accounts in chat** — shown as "Deleted account", read-only.
+- **Security hardening** — spot photo URLs validated server-side, `is_blocked` limited to the caller (`20260941000000_security_hardening.sql`).
+
 ## Next up
 
 Chat and the notification bell (both listed as "Next up" previously) are now
@@ -27,12 +35,12 @@ re-proposing the feature as new:
 | Voice/video calling | Needs WebRTC infra (LiveKit, Stream Video, Agora) — a different order of engineering problem from the rest of the app |
 | Real push notifications | Needs `expo-notifications` + a server-side trigger (Supabase Edge Function) |
 | PDF export of saved trails | Needs `expo-print`; waiting on the save feature itself being solid first |
-| Edit Post | Spots are delete-and-recreate only today |
+| Edit Post | Spots are delete-and-recreate only today. Now the most-wanted follow-up: since multi-photo, users can't change the cover or add/remove photos after posting |
 | Public/private account toggle | Not a flag — every read policy on `spots`/`profiles`/eventually `messages` would need connection-status-aware RLS |
 | Stories + highlights | Comparable in scope to everything built so far combined |
 | OTP-based signup | Real hardening, needs custom email templates + deep-link handling |
 | ~~Forgot-password flow~~ | Done — see "The actual checklist" §5 below |
-| Live golden-hour countdown | Feed hero's "GOLDEN HOUR · SOON" is static copy; a free sunrise/sunset API would make it live |
+| ~~Live golden-hour countdown~~ | Done — `hooks/useGoldenHour.ts` + `lib/sunTimes.ts` (sunrise-sunset.org) drive a live countdown in the Feed hero |
 | Map pin rendering rewrite | Current `ViewAnnotation` approach has a known async-image snapshot-timing quirk. Mitigated today by pre-fetching images before render — works, not fully robust. A `ShapeSource` + `SymbolLayer` rewrite is the complete fix |
 | Activity tracker feed | Considered, dropped — low value for a capstone demo |
 

@@ -61,16 +61,16 @@ store/          Zustand stores (locationPicker.ts)
 ## Built vs. in progress vs. deferred
 
 **Built:** auth + onboarding, own/public profile, map with clustering, add spot
-(3-way location: GPS / search / tap-to-pin), feed (personalized strips + filter
-sheet + vertical feed), spot detail (threaded comments, likes, share), connect
-(discover/requests/connections with full lifecycle), the two AI features.
+(1–10 photos with a cover, 3-way location: GPS / search / tap-to-pin, geo-tag
+camera), feed (personalized strips + filter sheet + sort chips + photo
+carousel), spot detail (threaded comments, likes, "Liked by", share), connect
+(discover/requests/connections with full lifecycle, trip matching), chat and
+the notification bell, notes, account deletion, the two AI features.
 
-**Schema exists, no UI yet — this is the next build, not a future one:**
-`conversations`, `conversation_members`, `messages` (RLS already handles a known
-Postgres self-reference recursion trap via a `security definer` helper
-function — see `.claude/rules/supabase.md`), and `notifications` (already
-populated by triggers on connection events). If asked to build chat, the schema
-work is done; scope is screens + Realtime wiring + a notification bell only.
+**Chat and notifications are built** (see `.claude/rules/supabase.md`). The
+`conversations`/`conversation_members` RLS handles a known Postgres
+self-reference recursion trap via a `security definer` helper — follow that
+pattern for any policy that checks membership of its own table.
 
 **Deliberately deferred — this list exists so these aren't re-proposed as new
 ideas.** Full list with rationale in `wanderlens-project-doc.md` §8: voice/video
@@ -105,9 +105,12 @@ quirk, mitigated by pre-fetching), an activity tracker.
 - **`AuthProvider` drives everything downstream.** It listens only to
   `onAuthStateChange` (no separate `getSession()` call) and sets `loading` false
   from inside that listener. Don't add a competing session fetch.
-- **Reads go through RPCs, writes go through tables.** Existing RPCs:
-  `feed_spots`, `nearby_spots`, `nearby_photographers`, `discover_people`,
-  `get_spot`, `get_spot_comments`, `get_saved_spots`, `get_connection_status`.
+- **Reads go through RPCs, writes go through tables.** Main RPCs:
+  `explore_spots` (the Feed), `get_spot_likers`, `nearby_spots`,
+  `nearby_photographers`, `discover_people`, `get_spot`, `get_spot_comments`,
+  `get_saved_spots`, `get_connection_status`. `feed_spots` and `get_spot` are
+  legacy and untracked — don't change their return columns blind; read extra
+  data alongside them (see `lib/spotPhotos.ts`).
   Prefer extending an RPC over assembling data with client-side joins.
 - **Screens refresh with `useFocusEffect`, not `useEffect`.** Tab screens must
   re-fetch on focus or stale data shows after navigating back.
