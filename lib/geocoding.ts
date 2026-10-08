@@ -6,6 +6,9 @@
  * - `reverseGeocode`: coordinates to a place name/address, used by add-spot,
  *   pick-location, spot-camera, and chat location sharing.
  * - `formatDMS`: degrees/minutes/seconds display for spot-camera and spot detail.
+ * - `placeDetails`: coordinates to the exact place name plus locality, state,
+ *   country and PIN code, for Add Spot and the tap-to-pin map;
+ *   `formatPlaceLine` / `formatDecimalCoords` display them.
  *
  * - `placeLabel` / `geocodePlace`: the "City, Region, Country" label and the
  *   typed-place search used by add-spot, pick-location and chat location
@@ -126,6 +129,109 @@ export async function placeLabel(lat: number, lng: number): Promise<string | nul
   } catch {
     return null;
   }
+}
+
+/**
+ * A point's address in parts. `name` is the specific feature at that point
+ * when OpenStreetMap has one ("Sela Pass", "Tawang Monastery"); the rest is
+ * the surrounding address. Any part may be null.
+ */
+export type PlaceDetails = {
+  name: string | null;
+  locality: string | null;
+  district: string | null;
+  state: string | null;
+  country: string | null;
+  postcode: string | null;
+};
+
+const EMPTY_DETAILS: PlaceDetails = { name: null, locality: null, district: null, state: null, country: null, postcode: null };
+
+/**
+ * Coordinates -> the exact place and its address parts, for Add Spot and
+ * the tap-to-pin map. Never throws; all-null on failure.
+ *
+ * Unlike placeLabel this asks Nominatim FIRST and at street level (zoom 18),
+ * not city level, so a pass or lake keeps its own name instead of becoming
+ * the nearest town. OpenStreetMap also labels Arunachal Pradesh correctly,
+ * where the Android system geocoder fails (see placeLabel). The device
+ * geocoder is only the fallback when Nominatim can't be reached.
+ */
+export async function placeDetails(lat: number, lng: number, signal?: AbortSignal): Promise<PlaceDetails> {
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lng), format: 'jsonv2', addressdetails: '1', zoom: '18' });
+  try {
+    const res = await fetch(`${NOMINATIM_REVERSE_URL}?${params.toString()}`, {
+      // English names: otherwise OSM answers in the local script (Devanagari,
+      // Tibetan…), which would then be saved into the spot's address fields.
+      headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'en' },
+      signal,
+    });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        name?: string; category?: string; type?: string; addresstype?: string;
+        address?: Record<string, string | undefined>;
+      };
+      const a = data.address ?? {};
+      // OSM uses different keys depending on the settlement's size.
+      const locality = a.village || a.town || a.city || a.hamlet || a.suburb || null;
+      const details: PlaceDetails = {
+        name: isPlaceLikeName(data) ? data.name! : null,
+        locality,
+        district: a.state_district || a.county || null,
+        state: a.state || null,
+        country: a.country || null,
+        postcode: a.postcode || null,
+      };
+      if (details.state || details.country) return details;
+    }
+  } catch {
+    // Aborted (a newer lookup replaced this one) or offline.
+    if (signal?.aborted) return EMPTY_DETAILS;
+    // Otherwise fall through to the device geocoder.
+  }
+  try {
+    const [p] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+    if (p) {
+      return {
+        // The device geocoder's `name` is usually a street address or house
+        // number on Android, not a place name, so it is never used as one.
+        name: null,
+        locality: p.city || null,
+        district: p.subregion || p.district || null,
+        state: p.region || null,
+        country: p.country || null,
+        postcode: p.postalCode || null,
+      };
+    }
+  } catch {
+    // Android throws for some regions (see placeLabel); nothing more to try.
+  }
+  return EMPTY_DETAILS;
+}
+
+// OSM results whose `name` is a road, a building or an address, not a
+// place a photographer would call the spot.
+const NON_PLACE_CATEGORIES = new Set(['highway', 'building', 'office', 'shop', 'craft']);
+const NON_PLACE_TYPES = new Set(['house', 'road', 'residential', 'yes', 'postcode']);
+
+/** True when a Nominatim result's `name` is worth offering as the place name. */
+function isPlaceLikeName(r: { name?: string; category?: string; type?: string; addresstype?: string }): boolean {
+  if (!r.name || /^\d/.test(r.name)) return false;
+  if (r.category && NON_PLACE_CATEGORIES.has(r.category)) return false;
+  if ((r.type && NON_PLACE_TYPES.has(r.type)) || (r.addresstype && NON_PLACE_TYPES.has(r.addresstype))) return false;
+  return true;
+}
+
+/** "Tawang · Arunachal Pradesh · India · PIN 790104", skipping missing parts; '' if none. */
+export function formatPlaceLine(d: Pick<PlaceDetails, 'locality' | 'state' | 'country' | 'postcode'>): string {
+  return [d.locality, d.state, d.country, d.postcode ? `PIN ${d.postcode}` : null].filter(Boolean).join(' · ');
+}
+
+/** "27.50421° N, 92.10372° E": decimal degrees to 5 places (about 1 m). */
+export function formatDecimalCoords(lat: number, lng: number): string {
+  const ns = lat >= 0 ? 'N' : 'S';
+  const ew = lng >= 0 ? 'E' : 'W';
+  return `${Math.abs(lat).toFixed(5)}° ${ns}, ${Math.abs(lng).toFixed(5)}° ${ew}`;
 }
 
 /**

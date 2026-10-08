@@ -12,9 +12,10 @@
  * when the value changes.
  */
 import { create } from 'zustand';
+import type { PlaceDetails } from '@/lib/geocoding';
 
-/** The chosen coordinate plus a readable label, or null when nothing is picked. */
-type PickedLocation = { lat: number; lng: number; label: string } | null;
+/** The chosen coordinate plus its address parts, or null when nothing is picked. */
+type PickedLocation = { lat: number; lng: number; details: PlaceDetails } | null;
 
 /** Store shape: the current value and its setter. */
 type LocationPickerState = {

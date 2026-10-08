@@ -50,7 +50,9 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { generateCaption } from '@/lib/ai';
-import { placeLabel, geocodePlace } from '@/lib/geocoding';
+import { placeDetails, geocodePlace, type PlaceDetails } from '@/lib/geocoding';
+import { LocationDetailsCard } from '@/components/LocationDetailsCard';
+import { haversineMeters } from '@/lib/clusterSpots';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PhotoStyleFrame, type PhotoStyleKey, type CaptionFontKey } from '@/components/PhotoStyleFrame';
 import { PhotoStylePicker } from '@/components/PhotoStylePicker';
@@ -72,8 +74,8 @@ const TIME_PERIODS = ['Morning', 'Afternoon', 'Evening', 'Night'];
 /** A photo chosen for the post. width/height come from the library picker; null for camera shots. */
 type PickedPhoto = { uri: string; width: number | null; height: number | null };
 
-/** A confirmed spot location: coordinates plus a human-readable label ("City, Region, Country"). */
-type ResolvedLocation = { lat: number; lng: number; label: string };
+/** A confirmed spot location: coordinates plus the address parts found for them. */
+type ResolvedLocation = { lat: number; lng: number; details: PlaceDetails };
 
 /**
  * The Add-a-spot screen. Owns all form state locally, picks up results from
@@ -136,6 +138,43 @@ export default function AddSpot() {
   const [placeQuery, setPlaceQuery] = useState('');
   const [resolvedLocation, setResolvedLocation] = useState<ResolvedLocation | null>(null);
   const [resolvingLocation, setResolvingLocation] = useState(false);
+  // The place's name as the user wants it shown. Geocoders often name a
+  // specific spot after the nearest town, so this is prefilled but editable.
+  const [placeName, setPlaceName] = useState('');
+  // Once the user edits the name, a re-resolved pin (fine-tuning on the map)
+  // updates the address and coordinates but never overwrites their name.
+  const nameEditedRef = useRef(false);
+  // What the user searched for in "From another trip": they know what the
+  // place is called, so that beats any geocoder name as the default.
+  const searchedNameRef = useRef<string | null>(null);
+  // Where that searched name applies: moving the pin far from it on the map
+  // means it's a different place, so the searched name no longer fits.
+  const searchedAtRef = useRef<{ lat: number; lng: number } | null>(null);
+  // Bumped by every GPS detect, search and mode switch, so a slow reply from
+  // an earlier one can't overwrite a newer location.
+  const locRequestRef = useRef(0);
+
+  /**
+   * Adopts a resolved point. The default name is, in order: the user's own
+   * search text, the OpenStreetMap feature name, the locality.
+   */
+  function applyLocation(loc: ResolvedLocation) {
+    const at = searchedAtRef.current;
+    if (at && haversineMeters(at.lat, at.lng, loc.lat, loc.lng) > 500) {
+      searchedNameRef.current = null;
+      searchedAtRef.current = null;
+    }
+    setResolvedLocation(loc);
+    if (!nameEditedRef.current) {
+      setPlaceName(searchedNameRef.current ?? loc.details.name ?? loc.details.locality ?? '');
+    }
+  }
+
+  /** Name field edits; marks the name as the user's own. */
+  function changePlaceName(name: string) {
+    nameEditedRef.current = true;
+    setPlaceName(name);
+  }
 
   // useFocusEffect runs its callback whenever this screen gains focus, which
   // includes coming back from a modal. When /pick-location has left a pin in
@@ -144,7 +183,7 @@ export default function AddSpot() {
   useFocusEffect(
     useCallbackSafe(() => {
       if (picked) {
-        setResolvedLocation(picked);
+        applyLocation(picked);
         setPicked(null);
       }
     }, [picked])
@@ -224,6 +263,11 @@ export default function AddSpot() {
    * as the resolved location. Shows an alert on denial or failure.
    */
   async function detectCurrentLocation() {
+    const request = ++locRequestRef.current;
+    // A fresh detection is a fresh place: offer its default name again.
+    nameEditedRef.current = false;
+    searchedNameRef.current = null;
+    searchedAtRef.current = null;
     setResolvingLocation(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -235,10 +279,11 @@ export default function AddSpot() {
       // can still be refined afterwards on the map picker.
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const { latitude, longitude } = pos.coords;
-      // placeLabel never throws (it falls back to OpenStreetMap when the
-      // device geocoder fails), so a label problem can't discard the GPS fix.
-      const label = await placeLabel(latitude, longitude);
-      setResolvedLocation({ lat: latitude, lng: longitude, label: label ?? 'Location detected' });
+      // placeDetails never throws, so an address lookup problem can't
+      // discard the GPS fix; the user can still type the name.
+      const details = await placeDetails(latitude, longitude);
+      if (request !== locRequestRef.current) return;
+      applyLocation({ lat: latitude, lng: longitude, details });
     } catch (err: any) {
       Alert.alert('Could not detect location', err.message ?? 'Please try again.');
     } finally {
@@ -248,9 +293,9 @@ export default function AddSpot() {
 
   /**
    * "From another trip" mode: forward-geocodes the typed place name, takes the
-   * first match, then reverse-geocodes those coordinates so the label is in
-   * the same "City, Region, Country" format as GPS detection. Falls back to
-   * the user's own query text as the label.
+   * first match, then looks up that point's address parts. The typed text
+   * becomes the default place name: the user knows what the place is called,
+   * while the geocoder tends to name it after the nearest town.
    *
    * Both steps go through lib/geocoding.ts, which falls back to OpenStreetMap
    * when the device geocoder fails. Before this, a failing label lookup (the
@@ -260,15 +305,23 @@ export default function AddSpot() {
   async function searchPlace() {
     const query = placeQuery.trim();
     if (!query) return;
+    const request = ++locRequestRef.current;
     setResolvingLocation(true);
     try {
       const hit = await geocodePlace(query);
+      if (request !== locRequestRef.current) return;
       if (!hit) {
         Alert.alert('Not found', 'No matching location found — try a more specific search.');
         return;
       }
-      const label = await placeLabel(hit.lat, hit.lng);
-      setResolvedLocation({ lat: hit.lat, lng: hit.lng, label: label ?? query });
+      const details = await placeDetails(hit.lat, hit.lng);
+      if (request !== locRequestRef.current) return;
+      // A new search is a new place: its text becomes the name again, even
+      // if the previous place's name had been edited.
+      nameEditedRef.current = false;
+      searchedNameRef.current = query;
+      searchedAtRef.current = { lat: hit.lat, lng: hit.lng };
+      applyLocation({ lat: hit.lat, lng: hit.lng, details });
     } finally {
       setResolvingLocation(false);
     }
@@ -279,6 +332,11 @@ export default function AddSpot() {
     setLocationMode(mode);
     setResolvedLocation(null);
     setPlaceQuery('');
+    setPlaceName('');
+    nameEditedRef.current = false;
+    searchedNameRef.current = null;
+    searchedAtRef.current = null;
+    locRequestRef.current++;
   }
 
   /**
@@ -291,7 +349,8 @@ export default function AddSpot() {
     const base = resolvedLocation;
     router.push({
       pathname: '/pick-location',
-      params: base ? { lat: String(base.lat), lng: String(base.lng) } : {},
+      // The address goes along too, so the picker doesn't look up the same point again.
+      params: base ? { lat: String(base.lat), lng: String(base.lng), details: JSON.stringify(base.details) } : {},
     });
   }
 
@@ -335,6 +394,10 @@ export default function AddSpot() {
     }
     if (!resolvedLocation) {
       Alert.alert('Location needed', locationMode === 'here' ? 'Tap "Detect my location" first.' : 'Search and confirm a place first.');
+      return;
+    }
+    if (!placeName.trim()) {
+      Alert.alert('Name this place', 'Give the location a name so others can find it.');
       return;
     }
     // Screen is behind the onboarded auth guard, so this is only a type-narrowing safety check.
@@ -400,7 +463,16 @@ export default function AddSpot() {
         weather_temp_c: captureGeoData?.weatherTempC ?? null,
         weather_condition: captureGeoData?.weatherCondition ?? null,
         location: `SRID=4326;POINT(${resolvedLocation.lng} ${resolvedLocation.lat})`,
-        location_label: resolvedLocation.label,
+        // The user's name plus the address parts, separately for Spot
+        // Detail, and composed into location_label for every older reader
+        // (map card, chat spot-shares, trail generator).
+        place_name: placeName.trim(),
+        place_locality: resolvedLocation.details.locality,
+        place_district: resolvedLocation.details.district,
+        place_state: resolvedLocation.details.state,
+        place_country: resolvedLocation.details.country,
+        place_postcode: resolvedLocation.details.postcode,
+        location_label: composeLocationLabel(placeName.trim(), resolvedLocation.details),
         created_by: session.user.id,
       }).select('id').single();
       if (insertError) throw insertError;
@@ -457,7 +529,7 @@ export default function AddSpot() {
       </View>
 
       {/* KeyboardAwareScrollView scrolls the focused TextInput above the keyboard. */}
-      <KeyboardAwareScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" enableOnAndroid extraScrollHeight={28}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" enableOnAndroid extraScrollHeight={80}>
         {/* Photos: cover preview plus the thumbnail strip once chosen, otherwise Camera (geo-tag camera) and Library buttons. */}
         <Text style={styles.label}>{photos.length > 1 ? 'Photos' : 'Photo'}</Text>
         {hero ? (
@@ -532,12 +604,15 @@ export default function AddSpot() {
           </View>
         )}
 
-        {/* Once a location is resolved: show its label and offer map fine-tuning. */}
+        {/* Once a location is resolved: the editable place name, its address and exact coordinates, then map fine-tuning. */}
         {resolvedLocation && (
-          <View style={styles.resolvedBox}>
-            <Ionicons name="checkmark-circle" size={15} color={theme.color.gold} />
-            <Text style={styles.resolvedText}>{resolvedLocation.label}</Text>
-          </View>
+          <LocationDetailsCard
+            lat={resolvedLocation.lat}
+            lng={resolvedLocation.lng}
+            details={resolvedLocation.details}
+            name={placeName}
+            onChangeName={changePlaceName}
+          />
         )}
         {resolvedLocation && (
           <Pressable onPress={openLocationPicker} style={styles.fineTuneBtn}>
@@ -616,6 +691,15 @@ function useCallbackSafe<T extends (...args: any[]) => any>(fn: T, deps: any[]) 
   return React.useCallback(fn, deps);
 }
 
+/**
+ * "Sela Pass, Tawang, Arunachal Pradesh, India" for spots.location_label.
+ * Parts already in the name (a place named after its town) aren't repeated.
+ */
+function composeLocationLabel(name: string, d: PlaceDetails): string {
+  const parts = [name, d.locality, d.state, d.country].filter((p): p is string => !!p);
+  return parts.filter((p, i) => parts.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i).join(', ');
+}
+
 // Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
 const styles = StyleSheet.create({
   // Top bar
@@ -648,8 +732,6 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   searchBtn: { backgroundColor: theme.color.gold, borderRadius: theme.radius.sm, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center' },
   searchBtnText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.dusk },
-  resolvedBox: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
-  resolvedText: { fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.gold },
   fineTuneBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   fineTuneText: { fontFamily: theme.font.bodyRegular, fontSize: 12, color: theme.color.gold, textDecorationLine: 'underline' },
   // Submit button

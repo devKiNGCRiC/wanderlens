@@ -52,7 +52,7 @@ import { fetchSpotPhotos, photosFor, fetchSpotStoragePaths, removeSpotFiles, typ
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
-import { formatDMS } from '@/lib/geocoding';
+import { formatDMS, formatPlaceLine, formatDecimalCoords } from '@/lib/geocoding';
 import { SpotDetailSkeleton } from '@/components/skeletons/SpotDetailSkeleton';
 
 /** The spot plus creator profile fields, as returned by the get_spot RPC. */
@@ -121,6 +121,12 @@ export default function SpotDetail() {
     captured_at: string | null; weather_temp_c: number | null; weather_condition: string | null;
     capture_place_name: string | null; capture_address: string | null;
   } | null>(null);
+  // Where the spot is: the poster's own place name and the address parts
+  // (20260944000000_spot_place_details.sql). Older spots only have location_label.
+  const [place, setPlace] = useState<{
+    place_name: string | null; place_locality: string | null; place_state: string | null;
+    place_country: string | null; place_postcode: string | null; location_label: string | null;
+  } | null>(null);
   // The viewer's own notes attached to this spot.
   const [myNotes, setMyNotes] = useState<{ id: string; title: string }[]>([]);
   // Comment being acted on via long-press sheet, and the comment currently being edited inline.
@@ -139,10 +145,10 @@ export default function SpotDetail() {
     // return columns blind, styled_photo_url and the geo-tag capture
     // columns are fetched with a plain (RLS-covered, spots are public-read)
     // table select instead.
-    const [{ data: spotData, error: spotError }, { data: extraRow }, photoMap] = await Promise.all([
+    const [{ data: spotData, error: spotError }, { data: extraRow, error: extraError }, photoMap] = await Promise.all([
       supabase.rpc('get_spot', { spot_id: id }).single(),
       supabase.from('spots')
-        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name, capture_address')
+        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name, capture_address, place_name, place_locality, place_state, place_country, place_postcode, location_label')
         .eq('id', id).maybeSingle(),
       fetchSpotPhotos([id]),
     ]);
@@ -154,11 +160,15 @@ export default function SpotDetail() {
       setLoading(false);
       return;
     }
+    // The extra columns failing (e.g. a migration not yet run) shouldn't
+    // blank the screen, but it shouldn't pass silently either.
+    if (extraError) console.warn('spot detail extra columns failed', extraError.message);
     setLoadError(false);
     setSpot(spotData as SpotDetail);
     setPhotos(photosFor(photoMap, spotData as SpotDetail));
     setStyledPhotoUrl(extraRow?.styled_photo_url ?? null);
     setGeoTag(extraRow ?? null);
+    setPlace(extraRow ?? null);
 
     // Everything below is independent, so fire it all at once (house
     // pattern, see .claude/rules/react-native.md) instead of one by one.
@@ -316,6 +326,11 @@ export default function SpotDetail() {
     ]);
   }
 
+  // "Tawang · Arunachal Pradesh · India · PIN 790104" (only spots with a place_name store the parts).
+  const placeLine = place?.place_name
+    ? formatPlaceLine({ locality: place.place_locality, state: place.place_state, country: place.place_country, postcode: place.place_postcode })
+    : '';
+
   // Error state: the spot could not be loaded. Offers Retry and a way back.
   if (loadError) {
     return (
@@ -381,6 +396,21 @@ export default function SpotDetail() {
 
           {/* Title, tag chips (genre, time of day, best time), description and age. */}
           <Text style={styles.title}>{spot.title}</Text>
+          {/* Location: the poster's own place name (older spots: their saved label), the address line, and exact coordinates that open the map. */}
+          <View style={styles.placeBlock}>
+            {(place?.place_name || place?.location_label) ? (
+              <View style={styles.placeNameRow}>
+                <Ionicons name="location" size={14} color={theme.color.gold} />
+                <Text style={styles.placeName}>{place.place_name || place.location_label}</Text>
+              </View>
+            ) : null}
+            {placeLine ? <Text style={styles.placeMeta}>{placeLine}</Text> : null}
+            {/* Coordinates always exist; tapping them opens the map there. */}
+            <Pressable onPress={viewOnMap} style={styles.placeCoordsBtn} accessibilityRole="button" accessibilityLabel="Coordinates. View on map">
+              <Ionicons name="map-outline" size={13} color={theme.color.gold} />
+              <Text style={styles.placeCoords}>{formatDecimalCoords(spot.lat, spot.lng)}</Text>
+            </Pressable>
+          </View>
           <View style={styles.metaRow}>
             {spot.genre && <View style={styles.tag}><Text style={styles.tagText}>{spot.genre}</Text></View>}
             {spot.time_of_day && <View style={styles.tag}><Text style={styles.tagText}>{spot.time_of_day}</Text></View>}
@@ -608,6 +638,12 @@ const styles = StyleSheet.create({
   creatorName: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.gold },
   // Title, tags, description, geo tag
   title: { fontFamily: theme.font.display, fontSize: 22, color: theme.color.cream },
+  placeBlock: { marginTop: 8 },
+  placeNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  placeName: { flexShrink: 1, fontFamily: theme.font.body, fontSize: 14, color: theme.color.cream },
+  placeMeta: { fontFamily: theme.font.mono, fontSize: 12, color: theme.color.muted, marginTop: 4 },
+  placeCoordsBtn: { alignSelf: 'flex-start', minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  placeCoords: { fontFamily: theme.font.mono, fontSize: 12, color: theme.color.gold },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   tag: { backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: 20, paddingVertical: 5, paddingHorizontal: 12 },
   tagText: { fontFamily: theme.font.mono, fontSize: 10.5, color: theme.color.gold },
