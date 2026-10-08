@@ -37,7 +37,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTour } from '@/context/TourProvider';
 
 /** One of the user's own spots, as selected from the `spots` table for the grid. */
-type MySpot = { id: string; title: string; photo_url: string | null; genre: string | null };
+// spot_photos is PostgREST's embedded count: one `{ count }` element (0 for spots posted before multi-photo).
+type MySpot = { id: string; title: string; photo_url: string | null; genre: string | null; spot_photos: { count: number }[] };
 
 /**
  * Turns the profile's user_type value into a display label, or null when
@@ -75,7 +76,7 @@ export default function ProfileScreen() {
         if (!session) return;
         const { data, error } = await supabase
           .from('spots')
-          .select('id, title, photo_url, genre')
+          .select('id, title, photo_url, genre, spot_photos(count)')
           .eq('created_by', session.user.id)
           .order('created_at', { ascending: false });
         if (!error && data) setMySpots(data as MySpot[]);
@@ -251,7 +252,7 @@ export default function ProfileScreen() {
           //   );
           // }}
           renderItem={({ item, index }) => (
-            <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
+            <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} photoCount={item.spot_photos?.[0]?.count ?? 1} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
           )}
           ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No captures yet — add one from the Map tab.</Text> : null}
         />

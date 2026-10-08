@@ -9,10 +9,12 @@
  * in app/_layout.tsx, so only signed-in, onboarded users can reach it.
  *
  * How it works:
- * - Photo: either the in-app geo-tag camera (/spot-camera) or the system
- *   photo library (expo-image-picker). The camera hands its result back
- *   through the `useSpotCameraStore` Zustand store, including GPS, altitude,
- *   place name and weather captured at shutter time.
+ * - Photos: 1–10 per spot, from the in-app geo-tag camera (/spot-camera,
+ *   one per trip) and/or the system library (expo-image-picker, several at
+ *   once). The first photo is the cover, shown on the map pin; the rest are
+ *   swiped through in the Feed and Spot Detail carousel. The camera hands
+ *   its result back through the `useSpotCameraStore` Zustand store, including
+ *   GPS, altitude, place name and weather captured at shutter time.
  * - Location, three ways: "I'm here now" (device GPS + reverse geocode),
  *   "From another trip" (text search via expo-location's geocoder), or
  *   tap-to-pin on /pick-location, which returns its choice through the
@@ -21,9 +23,10 @@
  *   is rendered on screen and, on save, captured to a second JPEG.
  * - Optional AI caption: `generateCaption` (lib/ai.ts) calls a Supabase Edge
  *   Function that suggests a title and description from the photo.
- * - Save: uploads the photo (and the styled copy, if any) to the
- *   `spot-photos` storage bucket under the user's id folder, then inserts
- *   one row into the `spots` table with a PostGIS point for its location.
+ * - Save: resizes and uploads each photo (and the styled cover, if any) to
+ *   the `spot-photos` bucket under the user's id folder, inserts the `spots`
+ *   row with a PostGIS point, then one `spot_photos` row per photo. Any
+ *   failure rolls all of it back (see lib/spotPhotos.ts).
  *
  * Why Zustand for the camera and map-picker results: expo-router screens
  * can't return a value to the screen that opened them, so the modal writes
@@ -35,7 +38,7 @@
  *   only as large as that preview (at most 280px square here).
  * - Switching location mode clears any already-resolved location.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, Image, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -53,6 +56,8 @@ import { PhotoStyleFrame, type PhotoStyleKey, type CaptionFontKey } from '@/comp
 import { PhotoStylePicker } from '@/components/PhotoStylePicker';
 import { CaptionFontPicker } from '@/components/CaptionFontPicker';
 import { captureViewAsBase64 } from '@/lib/media';
+import { PhotoPickerStrip } from '@/components/PhotoPickerStrip';
+import { MAX_SPOT_PHOTOS, resizeToJpeg, uploadSpotPhoto, removeSpotFiles, type UploadedPhoto } from '@/lib/spotPhotos';
 import { useLocationPickerStore } from '@/store/locationPicker';
 import { useSpotCameraStore, type CapturedPhoto } from '@/store/spotCamera';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
@@ -63,6 +68,9 @@ const CORE_GENRES = ['Street', 'Landscape', 'Portrait', 'Astro', 'Wildlife', 'Ar
 const MORE_GENRES = ['Macro', 'Aerial', 'Long Exposure', 'Black & White', 'Night', 'Urban', 'Nature', 'Minimalist', 'Documentary', 'Abstract'];
 // Values for the spot's `time_of_day` column, shown as single-select chips.
 const TIME_PERIODS = ['Morning', 'Afternoon', 'Evening', 'Night'];
+
+/** A photo chosen for the post. width/height come from the library picker; null for camera shots. */
+type PickedPhoto = { uri: string; width: number | null; height: number | null };
 
 /** A confirmed spot location: coordinates plus a human-readable label ("City, Region, Country"). */
 type ResolvedLocation = { lat: number; lng: number; label: string };
@@ -84,15 +92,21 @@ export default function AddSpot() {
   const captured = useSpotCameraStore((s) => s.captured);
   const setCaptured = useSpotCameraStore((s) => s.setCaptured);
 
-  // Form fields and the chosen photo. `image.base64` is what gets uploaded
-  // and what is sent to the AI caption function.
+  // Form fields and the chosen photos, 1–MAX_SPOT_PHOTOS of them. photos[0]
+  // is the cover (hero). Only URIs (plus the picker's pixel size, when
+  // known, which saves a decode at resize time) are held in state; each
+  // photo is resized and base64-encoded at upload time, so ten photos don't
+  // sit in memory as base64 strings.
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [bestTime, setBestTime] = useState('');
   const [genre, setGenre] = useState<string | null>(null);
-  const [image, setImage] = useState<{ uri: string; base64: string } | null>(null);
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  const hero = photos[0]?.uri ?? null;
   // Extra capture metadata (GPS, altitude, place, weather) that only exists
   // when the photo came from the in-app geo-tag camera; null for library picks.
+  // It describes the spot, so it's taken from the first camera capture only,
+  // and dropped if that photo is removed (its `uri` identifies it).
   const [captureGeoData, setCaptureGeoData] = useState<CapturedPhoto | null>(null);
   // Optional photo style. The ref points at the rendered PhotoStyleFrame so
   // it can be captured to an image on save.
@@ -104,6 +118,12 @@ export default function AddSpot() {
   // UI flags: saving spinner, expanded genre list, time-of-day chip,
   // free-text genre mode, and the AI caption spinner.
   const [saving, setSaving] = useState(false);
+  // "Uploading 3/7…" on the save button while photos go up one by one.
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  // Guards the post-save alert and router.back(): if the modal was closed
+  // while uploading, backing out again would pop an unrelated screen.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   const [showMoreGenres, setShowMoreGenres] = useState(false);
   const [timeOfDay, setTimeOfDay] = useState<string | null>(null);
   const [customMode, setCustomMode] = useState(false);
@@ -130,40 +150,72 @@ export default function AddSpot() {
     }, [picked])
   );
 
-  // Same handoff for the geo-tag camera: take the captured photo and its
-  // metadata out of the store, then clear the store.
+  // Same handoff for the geo-tag camera: append the captured photo (unless
+  // the post is already full), keep the first capture's metadata, then clear
+  // the store.
   useFocusEffect(
     useCallbackSafe(() => {
       if (captured) {
-        setImage({ uri: captured.uri, base64: captured.base64 });
-        setCaptureGeoData(captured);
+        setPhotos((prev) => (prev.length < MAX_SPOT_PHOTOS ? [...prev, { uri: captured.uri, width: null, height: null }] : prev));
+        setCaptureGeoData((prev) => prev ?? captured);
         setCaptured(null);
       }
     }, [captured])
   );
 
   /**
-   * Gets a photo from the system camera or photo library via expo-image-picker.
-   * Asks for the matching permission first and shows an alert if denied.
-   * Requests base64 at quality 0.6 so the photo is compressed before upload
-   * (the base64 string is what gets uploaded later). The "Camera" button in
-   * the UI opens /spot-camera instead, so only 'library' is used from JSX.
+   * Adds photos from the system library via expo-image-picker, several at a
+   * time, up to the remaining room under MAX_SPOT_PHOTOS. Asks for
+   * permission first and shows an alert if denied. No compression here:
+   * uploadSpotPhoto resizes each one at save time.
    */
-  async function pickImage(source: 'camera' | 'library') {
-    const permission = source === 'camera'
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+  async function pickFromLibrary() {
+    const room = MAX_SPOT_PHOTOS - photos.length;
+    if (room <= 0) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Permission needed', `Allow ${source === 'camera' ? 'camera' : 'photo library'} access to add a photo.`);
+      Alert.alert('Permission needed', 'Allow photo library access to add photos.');
       return;
     }
-    const result = source === 'camera'
-      ? await ImagePicker.launchCameraAsync({ quality: 0.6, base64: true })
-      : await ImagePicker.launchImageLibraryAsync({ quality: 0.6, base64: true, mediaTypes: ['images'] });
-    // Ignore a cancelled picker, or a result that somehow came back without base64.
-    if (!result.canceled && result.assets[0].base64) {
-      setImage({ uri: result.assets[0].uri, base64: result.assets[0].base64 });
-    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      // Respected on Android 13+ / iOS 14+; the slice below enforces it everywhere else.
+      selectionLimit: room,
+      orderedSelection: true,
+    });
+    if (result.canceled) return;
+    const picked: PickedPhoto[] = result.assets.map((a) => ({ uri: a.uri, width: a.width || null, height: a.height || null }));
+    setPhotos((prev) => {
+      // Skip duplicates (the same library photo picked twice) and cap the total.
+      const fresh = picked.filter((p) => !prev.some((q) => q.uri === p.uri));
+      return [...prev, ...fresh].slice(0, MAX_SPOT_PHOTOS);
+    });
+  }
+
+  /** "+" tile in the photo strip: choose between the geo-tag camera and the library. */
+  function addMorePhotos() {
+    Alert.alert('Add photos', undefined, [
+      { text: 'Camera', onPress: () => router.push('/spot-camera') },
+      { text: 'Library', onPress: pickFromLibrary },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  /** Moves the photo at `index` to the front, making it the cover. */
+  function makeCover(index: number) {
+    setPhotos((prev) => [prev[index], ...prev.filter((_, i) => i !== index)]);
+  }
+
+  /**
+   * Removes one photo. Removing the camera shot the geo metadata came from
+   * also drops that metadata, so a deleted photo's GPS and weather are never
+   * saved on the spot.
+   */
+  function removePhoto(index: number) {
+    const removed = photos[index];
+    setPhotos(photos.filter((_, i) => i !== index));
+    if (captureGeoData && removed?.uri === captureGeoData.uri) setCaptureGeoData(null);
   }
 
   /**
@@ -250,10 +302,13 @@ export default function AddSpot() {
    * still edit the result.
    */
   async function handleSuggestCaption() {
-    if (!image) return;
+    if (!hero) return;
     setGeneratingCaption(true);
     try {
-      const result = await generateCaption(image.base64);
+      // The cover photo, shrunk: the model doesn't need full resolution and
+      // a smaller payload keeps the Edge Function call quick.
+      const { base64 } = await resizeToJpeg(hero, 1024);
+      const result = await generateCaption(base64);
       setTitle(result.title);
       setDescription(result.description);
     } catch (err: any) {
@@ -265,13 +320,16 @@ export default function AddSpot() {
   }
 
   /**
-   * Validates the form, uploads the photo(s), and inserts the spot row.
-   * Side effects: Supabase Storage uploads, a `spots` insert, an alert, and
-   * router.back() on success.
+   * Validates the form, uploads the photos, and inserts the spot plus one
+   * `spot_photos` row per photo. All-or-nothing: if any step fails, the spot
+   * row (if created) and every uploaded file are removed, so a half-posted
+   * spot never appears on the map.
+   * Side effects: Supabase Storage uploads, `spots` and `spot_photos`
+   * inserts, an alert, and router.back() on success.
    */
   async function handleSubmit() {
-    // Required fields: title, genre, photo, and a resolved location.
-    if (!title || !genre || !image) {
+    // Required fields: title, genre, at least one photo, and a resolved location.
+    if (!title || !genre || !hero) {
       Alert.alert('Almost there', 'Add a title, a genre, and a photo before saving.');
       return;
     }
@@ -283,23 +341,30 @@ export default function AddSpot() {
     if (!session) return;
 
     setSaving(true);
+    // Everything uploaded or created so far, for the rollback in `catch`.
+    const uploadedPaths: string[] = [];
+    let spotId: string | null = null;
+    // Snapshot: the strip is disabled while saving, but the loop must not
+    // depend on state that could change under it.
+    const toUpload = photos;
     try {
-      // Upload the original photo. The object key starts with the user's id
-      // because the bucket's storage policy only allows inserts into the
-      // owner's own folder. React Native has no usable Blob, so the base64
-      // string is decoded to an ArrayBuffer first.
-      const fileName = `${session.user.id}/${Date.now()}.jpg`;
-      const { error: uploadError } = await supabase.storage
-        .from('spot-photos')
-        .upload(fileName, decode(image.base64), { contentType: 'image/jpeg' });
-      if (uploadError) throw uploadError;
-
-      // The bucket is public-read, so a plain public URL is stored on the spot.
-      const { data: publicUrlData } = supabase.storage.from('spot-photos').getPublicUrl(fileName);
+      // Upload every photo, one at a time (gentler on mobile data than ten
+      // parallel uploads). uploadSpotPhoto resizes each and writes it under
+      // the user's id folder, the only folder the bucket policy allows.
+      const uploaded: UploadedPhoto[] = [];
+      for (let i = 0; i < toUpload.length; i++) {
+        setUploadProgress({ done: i, total: toUpload.length });
+        const { uri, width: w, height: h } = toUpload[i];
+        const photo = await uploadSpotPhoto(session.user.id, uri, i, w && h ? { width: w, height: h } : undefined);
+        uploadedPaths.push(photo.storage_path);
+        uploaded.push(photo);
+      }
+      setUploadProgress(null);
 
       // If a style was chosen, snapshot the on-screen PhotoStyleFrame preview
-      // into a JPEG and upload it as a second file, stored separately in
-      // `styled_photo_url` so the original photo is kept untouched.
+      // (of the cover) into a JPEG and upload it as an extra file, stored in
+      // `styled_photo_url` so the original photo is kept untouched. React
+      // Native has no usable Blob, so base64 is decoded to an ArrayBuffer.
       let styledPhotoUrl: string | null = null;
       if (photoStyle !== 'none') {
         const styledBase64 = await captureViewAsBase64(stylePreviewRef);
@@ -308,21 +373,23 @@ export default function AddSpot() {
           .from('spot-photos')
           .upload(styledFileName, decode(styledBase64), { contentType: 'image/jpeg' });
         if (styledUploadError) throw styledUploadError;
+        uploadedPaths.push(styledFileName);
         styledPhotoUrl = supabase.storage.from('spot-photos').getPublicUrl(styledFileName).data.publicUrl;
       }
 
       // Insert the spot row (writes go straight to tables; reads use RPCs).
-      // The capture_* and weather_* columns are only filled for photos from
-      // the in-app camera. `location` is sent as EWKT text
-      // ("SRID=4326;POINT(lng lat)") which PostGIS parses into its geography
-      // column; note that longitude comes first.
-      const { error: insertError } = await supabase.from('spots').insert({
+      // photo_url is the cover, so the map pin and every older reader of
+      // this column show it. The capture_* and weather_* columns are only
+      // filled for photos from the in-app camera. `location` is sent as EWKT
+      // text ("SRID=4326;POINT(lng lat)") which PostGIS parses into its
+      // geography column; note that longitude comes first.
+      const { data: spotRow, error: insertError } = await supabase.from('spots').insert({
         title,
         description: description || null,
         best_time: bestTime || null,
         genre,
         time_of_day: timeOfDay,
-        photo_url: publicUrlData.publicUrl,
+        photo_url: uploaded[0].photo_url,
         styled_photo_url: styledPhotoUrl,
         capture_lat: captureGeoData?.lat ?? null,
         capture_lng: captureGeoData?.lng ?? null,
@@ -335,17 +402,33 @@ export default function AddSpot() {
         location: `SRID=4326;POINT(${resolvedLocation.lng} ${resolvedLocation.lat})`,
         location_label: resolvedLocation.label,
         created_by: session.user.id,
-      });
+      }).select('id').single();
       if (insertError) throw insertError;
+      spotId = spotRow.id;
 
+      // One row per photo, cover at position 0, in a single insert.
+      const { error: photosError } = await supabase.from('spot_photos').insert(
+        uploaded.map((p, position) => ({ spot_id: spotId, position, storage_path: p.storage_path, width: p.width, height: p.height }))
+      );
+      if (photosError) throw photosError;
+
+      // Closed mid-upload: the spot is posted, but there's nothing to go back from.
+      if (!mountedRef.current) return;
       Alert.alert('Spot added', 'Your spot is now live on the map.');
       router.back();
-    } catch (err: any) {
-      // Any upload or insert failure lands here. Files already uploaded
-      // before the failure are not removed.
-      Alert.alert('Something went wrong', err.message ?? 'Please try again.');
+    } catch (err) {
+      console.warn('add-spot save failed', err instanceof Error ? err.message : err);
+      // Roll back so nothing half-posted is left behind: deleting the spot
+      // cascades to any spot_photos rows, then the files go. Both are
+      // best-effort; the user-facing outcome is the same either way.
+      if (spotId) await supabase.from('spots').delete().eq('id', spotId);
+      await removeSpotFiles(uploadedPaths);
+      if (mountedRef.current) Alert.alert("Couldn't save your spot", 'Nothing was posted. Check your connection and try again.');
     } finally {
-      setSaving(false);
+      if (mountedRef.current) {
+        setUploadProgress(null);
+        setSaving(false);
+      }
     }
   }
 
@@ -353,10 +436,10 @@ export default function AddSpot() {
   // photo, style, AI caption, title, location, genre, time, tips, and save.
   return (
     <ScreenBackground>
-      {/* Hide the native modal header; this screen draws its own top bar. */}
-      <Stack.Screen options={{ headerShown: false }} />
+      {/* Hide the native modal header (this screen draws its own top bar); no swipe-to-dismiss while a save is uploading. */}
+      <Stack.Screen options={{ headerShown: false, gestureEnabled: !saving }} />
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} disabled={saving} accessibilityRole="button" accessibilityLabel="Close">
           <Ionicons name="chevron-back" size={20} color={theme.color.cream} />
         </Pressable>
         <Text style={styles.topBarTitle}>Add a spot</Text>
@@ -365,28 +448,29 @@ export default function AddSpot() {
 
       {/* KeyboardAwareScrollView scrolls the focused TextInput above the keyboard. */}
       <KeyboardAwareScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" enableOnAndroid extraScrollHeight={28}>
-        {/* Photo: preview once chosen, otherwise Camera (geo-tag camera) and Library buttons. */}
-        <Text style={styles.label}>Photo</Text>
-        {image ? (
-          <Image source={{ uri: image.uri }} style={styles.preview} />
+        {/* Photos: cover preview plus the thumbnail strip once chosen, otherwise Camera (geo-tag camera) and Library buttons. */}
+        <Text style={styles.label}>{photos.length > 1 ? 'Photos' : 'Photo'}</Text>
+        {hero ? (
+          <>
+            <Image source={{ uri: hero }} style={styles.preview} />
+            <PhotoPickerStrip uris={photos.map((p) => p.uri)} onMakeCover={makeCover} onRemove={removePhoto} onAdd={addMorePhotos} disabled={saving} />
+          </>
         ) : (
           <View style={styles.photoButtons}>
             <Pressable style={styles.photoBtn} onPress={() => router.push('/spot-camera')}><Text style={styles.photoBtnText}>Camera</Text></Pressable>
-            <Pressable style={styles.photoBtn} onPress={() => pickImage('library')}><Text style={styles.photoBtnText}>Library</Text></Pressable>
+            <Pressable style={styles.photoBtn} onPress={pickFromLibrary}><Text style={styles.photoBtnText}>Library</Text></Pressable>
           </View>
         )}
-        {/* Clearing the photo also drops any camera geo metadata tied to it. */}
-        {image && <Pressable onPress={() => { setImage(null); setCaptureGeoData(null); }}><Text style={styles.retake}>Choose a different photo</Text></Pressable>}
 
-        {/* Optional photo style. The styled preview is also the View captured on save. */}
-        {image && (
+        {/* Optional photo style, applied to the cover. The styled preview is also the View captured on save. */}
+        {hero && (
           <>
-            <Text style={styles.label}>Add a style (optional)</Text>
+            <Text style={styles.label}>{photos.length > 1 ? 'Style the cover (optional)' : 'Add a style (optional)'}</Text>
             <PhotoStylePicker value={photoStyle} onChange={setPhotoStyle} />
             {photoStyle !== 'none' && (
               <>
                 <View style={styles.stylePreviewWrap}>
-                  <PhotoStyleFrame photoUri={image.uri} style={photoStyle} caption={styleCaption} captionFont={styleCaptionFont} size={Math.min(width - 96, 280)} innerRef={stylePreviewRef} />
+                  <PhotoStyleFrame photoUri={hero} style={photoStyle} caption={styleCaption} captionFont={styleCaptionFont} size={Math.min(width - 96, 280)} innerRef={stylePreviewRef} />
                 </View>
                 <TextInput
                   style={[styles.input, { marginTop: 14 }]}
@@ -404,7 +488,7 @@ export default function AddSpot() {
         )}
 
         {/* AI caption assistant, only offered once there is a photo to describe. */}
-        {image && (
+        {hero && (
           <Pressable onPress={handleSuggestCaption} style={styles.aiSuggestBtn} disabled={generatingCaption}>
             {generatingCaption ? <ActivityIndicator color={theme.color.gold} size="small" /> : <Text style={styles.aiSuggestText}>✨ Suggest title & description</Text>}
           </Pressable>
@@ -494,8 +578,17 @@ export default function AddSpot() {
         <TextInput style={[styles.input, styles.multiline]} placeholder="Any tips for other photographers?" placeholderTextColor={theme.color.muted} value={description} onChangeText={setDescription} multiline />
 
         {/* Submit button; disabled and showing a spinner while uploading. */}
-        <Pressable style={styles.submit} onPress={handleSubmit} disabled={saving}>
-          {saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.submitText}>Save spot</Text>}
+        <Pressable
+          style={styles.submit}
+          onPress={handleSubmit}
+          disabled={saving}
+          accessibilityRole="button"
+          accessibilityState={{ busy: saving }}
+          accessibilityLabel={uploadProgress ? `Uploading photo ${uploadProgress.done + 1} of ${uploadProgress.total}` : 'Save spot'}
+        >
+          {uploadProgress ? (
+            <Text style={styles.submitText}>Uploading {uploadProgress.done + 1}/{uploadProgress.total}…</Text>
+          ) : saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.submitText}>Save spot</Text>}
         </Pressable>
       </KeyboardAwareScrollView>
     </ScreenBackground>
@@ -533,9 +626,8 @@ const styles = StyleSheet.create({
   photoButtons: { flexDirection: 'row', gap: 12 },
   photoBtn: { flex: 1, backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.surface2, borderRadius: theme.radius.sm, paddingVertical: 24, alignItems: 'center' },
   photoBtnText: { color: theme.color.cream, fontFamily: theme.font.body },
-  preview: { width: '100%', height: 200, borderRadius: theme.radius.sm },
+  preview: { width: '100%', height: 200, borderRadius: theme.radius.sm, marginBottom: 6 },
   stylePreviewWrap: { alignItems: 'center', marginTop: 14 },
-  retake: { color: theme.color.gold, fontFamily: theme.font.bodyRegular, fontSize: 12, marginTop: 8, textAlign: 'center' },
   aiSuggestBtn: { marginTop: 10, borderWidth: 1, borderColor: theme.color.gold, borderRadius: 20, paddingVertical: 9, alignItems: 'center' },
   aiSuggestText: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.gold },
   // Location section

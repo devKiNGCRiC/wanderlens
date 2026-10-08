@@ -46,6 +46,8 @@ import { supabase } from '@/lib/supabase';
 import { PolaroidCard } from '@/components/PolaroidCard';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { FilterSheet } from '@/components/FilterSheet';
+import { PhotoCarousel } from '@/components/PhotoCarousel';
+import { fetchSpotPhotos, photosFor, type SpotPhoto } from '@/lib/spotPhotos';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 import { formatUserType } from '@/lib/formatUserType';
 import { excludeDeletedProfiles } from '@/lib/profiles';
@@ -100,6 +102,11 @@ export default function FeedScreen() {
   const [nearbySpots, setNearbySpots] = useState<NearbySpot[]>([]);
   const [photographers, setPhotographers] = useState<Photographer[]>([]);
   const [feed, setFeed] = useState<FeedPost[]>([]);
+  // Every photo of each feed post, keyed by spot id, for the carousel.
+  // Posts missing here (pre-multi-photo spots) fall back to photo_url.
+  const [photosBySpot, setPhotosBySpot] = useState<Map<string, SpotPhoto[]>>(new Map());
+  // Id of the latest loadFeed call, to drop out-of-order responses.
+  const feedRequestRef = useRef(0);
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [genreFilter, setGenreFilter] = useState<string | null>(null);
@@ -115,12 +122,22 @@ export default function FeedScreen() {
 
   /**
    * Fetches up to 30 feed posts from the feed_spots RPC with the given
-   * filters (null means "no filter") and replaces the feed. On error the
-   * current feed is left as-is.
+   * filters (null means "no filter"), then all their photos in one more
+   * request, and replaces the feed. On error the current feed is left as-is.
+   * feed_spots is a legacy, untracked RPC, so photos are read from
+   * spot_photos alongside it rather than by changing its return columns.
    */
   async function loadFeed(genre: string | null, time: string | null) {
+    // Two quick filter changes can resolve out of order (there are two
+    // awaits here); only the newest request may replace the feed.
+    const request = ++feedRequestRef.current;
     const { data, error } = await supabase.rpc('feed_spots', { genre_filter: genre, time_filter: time, limit_count: 30 });
-    if (!error && data) setFeed(data as FeedPost[]);
+    if (error || !data) return;
+    const posts = data as FeedPost[];
+    const photos = await fetchSpotPhotos(posts.map((p) => p.id));
+    if (request !== feedRequestRef.current) return;
+    setPhotosBySpot(photos);
+    setFeed(posts);
   }
 
   // Reload everything each time the Feed tab gains focus (see file header).
@@ -355,9 +372,14 @@ export default function FeedScreen() {
                 {item.genre && <Text style={styles.postGenre}>· {item.genre}</Text>}
               </Pressable>
 
-              <Pressable onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })}>
-                {item.photo_url && <Image source={{ uri: item.photo_url }} style={styles.postImage} />}
-              </Pressable>
+              {/* Swipe through a multi-photo post; a tap on any photo opens the spot. */}
+              <PhotoCarousel
+                photos={photosFor(photosBySpot, item)}
+                height={320}
+                style={styles.postImage}
+                label={item.title}
+                onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })}
+              />
 
               <View style={styles.postActionsRow}>
                 <View style={styles.postActionsLeft}>
@@ -449,7 +471,7 @@ const styles = StyleSheet.create({
   postAvatarText: { fontFamily: theme.font.display, fontSize: 12, color: theme.color.dusk },
   postCreatorName: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   postGenre: { fontFamily: theme.font.mono, fontSize: 10.5, color: theme.color.gold },
-  postImage: { width: '100%', height: 320, borderRadius: theme.radius.md },
+  postImage: { borderRadius: theme.radius.md },
   postActionsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
   postActionsLeft: { flexDirection: 'row', alignItems: 'center' },
   postBody: { marginTop: 6 },

@@ -50,7 +50,8 @@ type PublicProfile = {
   photography_genres: string[] | null; place_interests: string[] | null;
 };
 /** One of the user's spots, just enough to render a polaroid grid tile. */
-type Spot = { id: string; photo_url: string | null; genre: string | null };
+// spot_photos is PostgREST's embedded count: one `{ count }` element (0 for spots posted before multi-photo).
+type Spot = { id: string; photo_url: string | null; genre: string | null; spot_photos: { count: number }[] };
 /**
  * The connection between the viewer and this user.
  * status 'none' = no row; 'pending' = request waiting; 'accepted' = connected.
@@ -102,7 +103,7 @@ export default function PublicProfile() {
     }
     setLoadError(false);
     setProfile(profileData as PublicProfile);
-    const { data: spotsData } = await supabase.from('spots').select('id, photo_url, genre').eq('created_by', id).order('created_at', { ascending: false });
+    const { data: spotsData } = await supabase.from('spots').select('id, photo_url, genre, spot_photos(count)').eq('created_by', id).order('created_at', { ascending: false });
     setSpots((spotsData as Spot[]) ?? []);
 
     // Relationship data depends on who is viewing, so only fetch it with a session.
@@ -328,7 +329,7 @@ export default function PublicProfile() {
           </View>
         }
         renderItem={({ item, index }) => (
-          <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
+          <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} photoCount={item.spot_photos?.[0]?.count ?? 1} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
         )}
       />
       {/* Full-screen avatar viewer. */}

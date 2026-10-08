@@ -50,6 +50,11 @@ export const theme = {
     // hour" half of the app's dual identity where legible text is needed
     // (e.g. the feed hero's live golden/blue-hour label).
     blueHourLight: '#B7A9E0',
+    // Translucent dusk behind small chrome laid over a photo (the carousel's
+    // "2/7" counter, the Captures stack badge) so it reads on bright skies.
+    photoScrim: 'rgba(20,23,31,0.72)',
+    // Inactive carousel page dot — cream, dimmed, so the gold active dot leads.
+    dotInactive: 'rgba(246,241,231,0.6)',
   },
   font: {
     // Fraunces: display serif for titles and hero moments only.

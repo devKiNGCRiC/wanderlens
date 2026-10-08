@@ -46,6 +46,7 @@ import { ImageViewer } from '@/components/ImageViewer';
 import { useUserLocation } from '@/hooks/useUserLocation';
 import { useTourTarget } from '@/hooks/useTourTarget';
 import { clusterSpots, haversineMeters } from '@/lib/clusterSpots';
+import { fetchSpotStoragePaths, removeSpotFiles } from '@/lib/spotPhotos';
 import { ScreenBackground } from '@/components/ScreenBackground';
 
 // Free vector map style from OpenFreeMap ("liberty" theme); no API key needed.
@@ -173,7 +174,9 @@ export default function MapScreen() {
   }
 
   /**
-   * Asks for confirmation, then deletes the spot from the `spots` table.
+   * Asks for confirmation, then deletes the spot from the `spots` table and
+   * (best-effort) its files from storage. The file paths are read first
+   * because the spot_photos rows cascade away with the spot.
    * On success the spot is removed from local state and the card closes;
    * on failure the error is shown in an Alert. Only offered to the creator
    * in the UI; RLS enforces the real permission server-side.
@@ -184,9 +187,10 @@ export default function MapScreen() {
       {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
+          const paths = await fetchSpotStoragePaths(spotId);
           const { error } = await supabase.from('spots').delete().eq('id', spotId);
           if (error) Alert.alert('Could not delete', error.message);
-          else { setSpots((prev) => prev.filter((s) => s.id !== spotId)); closeCard(); }
+          else { removeSpotFiles(paths); setSpots((prev) => prev.filter((s) => s.id !== spotId)); closeCard(); }
         },
       },
     ]);

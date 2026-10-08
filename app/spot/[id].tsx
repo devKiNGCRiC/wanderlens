@@ -26,8 +26,11 @@
  * Why:
  * - useFocusEffect re-fetches whenever the screen regains focus, so coming
  *   back from the note editor or a profile shows current data.
- * - The full-screen viewer prefers styled_photo_url (a Photo Styles version
- *   of the image, if one exists) over the original photo.
+ * - A multi-photo spot shows a swipeable PhotoCarousel; photos come from
+ *   the spot_photos table (get_spot is untracked, so it isn't changed).
+ *   Older spots fall back to their single photo_url.
+ * - The full-screen viewer opens on the tapped photo. For the cover it
+ *   prefers styled_photo_url (a Photo Styles version, if one exists).
  *
  * Gotchas:
  * - A reply to a reply is stored with the TOP-LEVEL comment as its parent
@@ -44,6 +47,8 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ImageViewer } from '@/components/ImageViewer';
+import { PhotoCarousel } from '@/components/PhotoCarousel';
+import { fetchSpotPhotos, photosFor, fetchSpotStoragePaths, removeSpotFiles, type SpotPhoto } from '@/lib/spotPhotos';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
@@ -105,6 +110,10 @@ export default function SpotDetail() {
   // spot was deleted). Shows a message with Retry instead of the skeleton.
   const [loadError, setLoadError] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
+  // Which carousel photo the full-screen viewer shows.
+  const [viewerIndex, setViewerIndex] = useState(0);
+  // The spot's photos in order (cover first); empty until loaded.
+  const [photos, setPhotos] = useState<SpotPhoto[]>([]);
   const [styledPhotoUrl, setStyledPhotoUrl] = useState<string | null>(null);
   // Live-capture metadata (set when the photo was taken in-app with location/weather). All null for ordinary uploads.
   const [geoTag, setGeoTag] = useState<{
@@ -130,11 +139,12 @@ export default function SpotDetail() {
     // return columns blind, styled_photo_url and the geo-tag capture
     // columns are fetched with a plain (RLS-covered, spots are public-read)
     // table select instead.
-    const [{ data: spotData, error: spotError }, { data: extraRow }] = await Promise.all([
+    const [{ data: spotData, error: spotError }, { data: extraRow }, photoMap] = await Promise.all([
       supabase.rpc('get_spot', { spot_id: id }).single(),
       supabase.from('spots')
         .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name, capture_address')
         .eq('id', id).maybeSingle(),
+      fetchSpotPhotos([id]),
     ]);
     // .single() returns an error when no row matches, so a deleted spot and
     // a network failure both land here. Without this check the skeleton
@@ -146,6 +156,7 @@ export default function SpotDetail() {
     }
     setLoadError(false);
     setSpot(spotData as SpotDetail);
+    setPhotos(photosFor(photoMap, spotData as SpotDetail));
     setStyledPhotoUrl(extraRow?.styled_photo_url ?? null);
     setGeoTag(extraRow ?? null);
 
@@ -294,10 +305,13 @@ export default function SpotDetail() {
     Alert.alert('Delete this spot?', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-        // Only leave the screen once the delete has actually gone through.
+        // The file paths are read first: the spot_photos rows cascade away
+        // with the spot. Only leave the screen once the delete has gone
+        // through; file clean-up is best-effort after that.
+        const paths = await fetchSpotStoragePaths(spot.id);
         const { error } = await supabase.from('spots').delete().eq('id', spot.id);
         if (error) Alert.alert('Could not delete spot', 'Check your connection and try again.');
-        else router.back();
+        else { removeSpotFiles(paths); router.back(); }
       } },
     ]);
   }
@@ -345,11 +359,12 @@ export default function SpotDetail() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         {/* Hero photo (tap for full screen) with a floating back button. */}
         <View>
-          {spot.photo_url && (
-            <Pressable onPress={() => setViewerVisible(true)}>
-              <Image source={{ uri: spot.photo_url }} style={styles.heroImage} />
-            </Pressable>
-          )}
+          <PhotoCarousel
+            photos={photos}
+            height={300}
+            label={spot.title}
+            onPress={(i) => { setViewerIndex(i); setViewerVisible(true); }}
+          />
           <Pressable onPress={() => router.back()} style={[styles.backBtn, { top: insets.top + 10 }]}>
             <Ionicons name="chevron-back" size={20} color={theme.color.cream} />
           </Pressable>
@@ -545,7 +560,7 @@ export default function SpotDetail() {
       </View>
 
       {/* Full-screen photo viewer, showing the styled version when one exists. */}
-      <ImageViewer visible={viewerVisible} uri={styledPhotoUrl ?? spot.photo_url} onClose={() => setViewerVisible(false)} />
+      <ImageViewer visible={viewerVisible} uri={viewerIndex === 0 ? (styledPhotoUrl ?? photos[0]?.photo_url) : photos[viewerIndex]?.photo_url} onClose={() => setViewerVisible(false)} />
 
       {/* Comment action sheet: Edit is offered only on your own comment; Delete always (sheet opens only for author or spot owner). */}
       <ActionSheet
@@ -573,7 +588,6 @@ const styles = StyleSheet.create({
   errorBackBtn: { marginTop: 8, paddingVertical: 12, paddingHorizontal: 24 },
   errorBackText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.muted },
   // Hero and creator
-  heroImage: { width: '100%', height: 300 },
   backBtn: { position: 'absolute', left: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(20,23,31,0.55)', alignItems: 'center', justifyContent: 'center' },
   body: { padding: 20 },
   creatorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
