@@ -29,6 +29,7 @@ import { useChat } from '@/context/ChatProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
 import { ConversationRow, type ConversationSummary } from '@/components/chat/ConversationRow';
+import { flagDeletedConversationPeers } from '@/lib/profiles';
 import { ConversationOptionsSheet, type ConversationAction } from '@/components/chat/ConversationOptionsSheet';
 import { ConversationRowSkeletonList } from '@/components/skeletons/ConversationRowSkeleton';
 
@@ -72,8 +73,14 @@ export default function ChatListScreen() {
       setLoading(false);
       return;
     }
-    setConversations((inboxRes.data as ConversationSummary[]) ?? []);
-    setRequests((requestsRes.data as ConversationSummary[]) ?? []);
+    // One extra query marks chats whose other person deleted their account,
+    // so they show as "Deleted account" instead of a placeholder username.
+    const [inbox, requests] = await Promise.all([
+      flagDeletedConversationPeers((inboxRes.data as ConversationSummary[]) ?? []),
+      flagDeletedConversationPeers((requestsRes.data as ConversationSummary[]) ?? []),
+    ]);
+    setConversations(inbox);
+    setRequests(requests);
     setLoading(false);
     refreshUnreadCount();
   }, [session]);

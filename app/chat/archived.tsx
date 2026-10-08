@@ -32,6 +32,7 @@ import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { ConversationRow, type ConversationSummary } from '@/components/chat/ConversationRow';
+import { flagDeletedConversationPeers } from '@/lib/profiles';
 
 /**
  * Archived chats list. Default export because expo-router turns every
@@ -56,7 +57,8 @@ export default function ArchivedScreen() {
     if (!session) return;
     setLoading(true);
     const { data, error } = await supabase.rpc('list_conversations', { p_archived: true });
-    if (!error) setConversations((data as ConversationSummary[]) ?? []);
+    // Mark chats with deleted accounts so they show as "Deleted account".
+    if (!error) setConversations(await flagDeletedConversationPeers((data as ConversationSummary[]) ?? []));
     setLoading(false);
   }, [session]);
 

@@ -2,10 +2,45 @@
  * lib/profiles.ts: profile-related helpers shared by several screens.
  *
  * Used by app/(tabs)/connect.tsx and app/(tabs)/index.tsx to drop deleted
- * accounts from "people you could connect with" lists, and by the people
- * search in new-message, create-group and group/[id] to build a safe filter.
+ * accounts from "people you could connect with" lists, by the people search
+ * in new-message, create-group and group/[id] to build a safe filter, and by
+ * the chat screens to show a deleted account as "Deleted account".
  */
 import { supabase } from '@/lib/supabase';
+
+/**
+ * What the app calls a deleted account. Deletion renames the profile to
+ * `deleted_user_<8 chars>` (see 20260928000000_account_deletion.sql), which
+ * is an internal placeholder, not something to show people.
+ */
+export const DELETED_ACCOUNT_LABEL = 'Deleted account';
+
+/**
+ * Which of the given profile ids belong to deleted accounts, in one query.
+ * On a failed query the set is empty, so nothing is treated as deleted.
+ */
+export async function fetchDeletedProfileIds(ids: string[]): Promise<Set<string>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return new Set();
+  const { data } = await supabase
+    .from('profiles')
+    .select('id')
+    .in('id', unique)
+    .not('deleted_at', 'is', null);
+  return new Set((data ?? []).map((r: { id: string }) => r.id));
+}
+
+/**
+ * Adds `other_deleted` to list_conversations rows: true for a 1:1 chat whose
+ * other person has deleted their account. The chat is kept (it's your
+ * history too); the flag only changes how it's shown.
+ * list_conversations itself isn't changed, since altering its return
+ * columns means dropping and recreating a large function.
+ */
+export async function flagDeletedConversationPeers<T extends { is_group: boolean; other_user_id: string | null }>(rows: T[]): Promise<(T & { other_deleted: boolean })[]> {
+  const deleted = await fetchDeletedProfileIds(rows.filter((r) => !r.is_group && r.other_user_id).map((r) => r.other_user_id as string));
+  return rows.map((r) => ({ ...r, other_deleted: !r.is_group && !!r.other_user_id && deleted.has(r.other_user_id) }));
+}
 
 // Filters out anonymized/deleted accounts from a list of candidate profiles
 // (RPC results like discover_people/nearby_photographers don't know about
@@ -42,12 +77,6 @@ export function profileSearchFilter(q: string): string | null {
 export async function excludeDeletedProfiles<T extends { id: string }>(rows: T[]): Promise<T[]> {
   // Nothing to check; skip the network call.
   if (rows.length === 0) return rows;
-  // Fetch only the ids among `rows` whose `deleted_at` is NOT null (i.e. deleted accounts).
-  const { data } = await supabase
-    .from('profiles')
-    .select('id')
-    .in('id', rows.map((r) => r.id))
-    .not('deleted_at', 'is', null);
-  const deletedIds = new Set((data ?? []).map((r) => r.id));
+  const deletedIds = await fetchDeletedProfileIds(rows.map((r) => r.id));
   return rows.filter((r) => !deletedIds.has(r.id));
 }

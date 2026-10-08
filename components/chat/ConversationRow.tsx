@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/Avatar';
 import { theme } from '@/constants/theme';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
+import { DELETED_ACCOUNT_LABEL } from '@/lib/profiles';
 
 /**
  * One conversation as the list screens receive it, one row of the
@@ -54,6 +55,9 @@ export type ConversationSummary = {
   is_muted: boolean;
   is_favorite: boolean;
   is_archived: boolean;
+  // Set by flagDeletedConversationPeers (lib/profiles.ts), not by the RPC:
+  // the other person in this 1:1 chat has deleted their account.
+  other_deleted?: boolean;
 };
 
 /**
@@ -72,7 +76,13 @@ type Props = {
 export function ConversationRow({ item, myUserId, onPress, onLongPress }: Props) {
   // Display name: group name for groups; for 1:1 chats prefer username, then
   // full name, then a generic "traveler" (profile fields are nullable).
-  const name = item.is_group ? (item.group_name || 'Group') : (item.other_username || item.other_full_name || 'traveler');
+  // A deleted account shows as "Deleted account", never its internal
+  // `deleted_user_…` placeholder username.
+  const name = item.is_group
+    ? (item.group_name || 'Group')
+    : item.other_deleted
+      ? DELETED_ACCOUNT_LABEL
+      : (item.other_username || item.other_full_name || 'traveler');
   const isUnread = item.unread_count > 0;
   // Preview line: "You: ..." when the last message was mine, or a friendly
   // prompt when the conversation has no messages yet.
@@ -92,7 +102,7 @@ export function ConversationRow({ item, myUserId, onPress, onLongPress }: Props)
           )}
         </View>
       ) : (
-        <Avatar uri={item.other_avatar_url} label={name} size={50} />
+        <Avatar uri={item.other_deleted ? null : item.other_avatar_url} label={name} size={50} />
       )}
       <View style={styles.body}>
         {/* Top line: pin/star markers, name, relative time of the last message */}
@@ -100,7 +110,7 @@ export function ConversationRow({ item, myUserId, onPress, onLongPress }: Props)
           <View style={styles.nameRow}>
             {item.is_pinned && <Ionicons name="pin" size={11} color={theme.color.gold} />}
             {item.is_favorite && <Ionicons name="star" size={11} color={theme.color.gold} />}
-            <Text style={styles.name} numberOfLines={1}>{name}</Text>
+            <Text style={[styles.name, item.other_deleted && styles.nameDeleted]} numberOfLines={1}>{name}</Text>
           </View>
           {item.last_message_at && (
             <Text style={styles.time}>{formatTimeAgo(item.last_message_at)}</Text>
@@ -135,6 +145,8 @@ const styles = StyleSheet.create({
   topLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   nameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5 },
   name: { flex: 1, fontFamily: theme.font.body, fontSize: 14.5, color: theme.color.cream },
+  // Muted, so a deleted account reads as inactive next to live chats.
+  nameDeleted: { color: theme.color.muted, fontFamily: theme.font.bodyRegular },
   time: { fontFamily: theme.font.mono, fontSize: 10, color: theme.color.muted, marginLeft: 8 },
   // Preview line and unread badge
   bottomLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

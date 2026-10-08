@@ -25,7 +25,7 @@ import { useState, useCallback } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { profileSearchFilter } from '@/lib/profiles';
+import { profileSearchFilter, flagDeletedConversationPeers } from '@/lib/profiles';
 import { theme } from '@/constants/theme';
 import { useAuth } from '@/context/AuthProvider';
 import { Avatar } from '@/components/Avatar';
@@ -90,8 +90,11 @@ export default function NewMessageScreen() {
   // A failure leaves the list empty and the search box still works.
   useFocusEffect(useCallback(() => {
     if (!shareSpotId || !session) return;
-    supabase.rpc('list_conversations', { p_status: 'accepted' }).then(({ data, error }) => {
-      if (!error) setConversations((data as ConversationSummary[]) ?? []);
+    supabase.rpc('list_conversations', { p_status: 'accepted' }).then(async ({ data, error }) => {
+      if (error) return;
+      // A deleted account can't receive anything, so it isn't a share target.
+      const flagged = await flagDeletedConversationPeers((data as ConversationSummary[]) ?? []);
+      setConversations(flagged.filter((c) => !c.other_deleted));
     });
   }, [shareSpotId, session]));
 

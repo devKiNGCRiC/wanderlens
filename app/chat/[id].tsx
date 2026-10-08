@@ -68,6 +68,7 @@ import { Avatar } from '@/components/Avatar';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { ActionSheet } from '@/components/ActionSheet';
 import { ImageViewer } from '@/components/ImageViewer';
+import { DELETED_ACCOUNT_LABEL } from '@/lib/profiles';
 import { MessageBubble, type MessageItem } from '@/components/chat/MessageBubble';
 import { MessageComposer, type SendMode } from '@/components/chat/MessageComposer';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
@@ -99,7 +100,8 @@ const MEDIA_BUCKET = 'message-media';
  */
 type LocalMessage = MessageItem & { client_generated_id?: string | null; _base64?: string; _base64s?: string[]; _mimeType?: string | null; _serverMessageId?: string };
 /** The other participant's profile in a 1:1 chat (from the profiles join on conversation_members). */
-type OtherUser = { id: string; username: string | null; full_name: string | null; avatar_url: string | null };
+// deleted_at is set when that person deleted their account (the profile row stays, anonymized).
+type OtherUser = { id: string; username: string | null; full_name: string | null; avatar_url: string | null; deleted_at: string | null };
 /**
  * My membership status in this conversation (conversation_members.status):
  * 'accepted' = normal chat, 'request' = someone not connected messaged me and
@@ -144,6 +146,9 @@ export default function ChatThread() {
   const conversationInfoRef = useRef<ConversationInfo | null>(null);
   const [myStatus, setMyStatus] = useState<MemberStatus>('accepted');
   const [myBlocked, setMyBlocked] = useState(false);
+  // Members (any status) whose account has been deleted: their messages stay,
+  // labelled "Deleted account" rather than the placeholder username.
+  const [deletedMemberIds, setDeletedMemberIds] = useState<Set<string>>(new Set());
   // The message list (newest first, to match the inverted FlatList), the
   // composer text, and loading flags for the first page and older pages.
   const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -214,12 +219,13 @@ export default function ChatThread() {
     // Every member plus their profile, via the `profiles:user_id(...)` foreign-key join.
     const { data } = await supabase
       .from('conversation_members')
-      .select('user_id, status, last_read_at, profiles:user_id(id, username, full_name, avatar_url)')
+      .select('user_id, status, last_read_at, profiles:user_id(id, username, full_name, avatar_url, deleted_at)')
       .eq('conversation_id', id);
     if (!data) return;
     const rows = data as unknown as { user_id: string; status: MemberStatus; last_read_at: string; profiles: OtherUser | null }[];
     const mine = rows.find((m) => m.user_id === myUserId);
     if (mine) setMyStatus(mine.status);
+    setDeletedMemberIds(new Set(rows.filter((m) => m.profiles?.deleted_at).map((m) => m.user_id)));
 
     // 1:1 only: "the other person" is the single non-me member. Groups use
     // conversationInfo for the header instead.
@@ -1329,8 +1335,15 @@ export default function ChatThread() {
 
   // Values derived for rendering.
   const isGroup = !!conversationInfo?.is_group;
-  // Header title: group name, or the other person's username / full name.
-  const name = isGroup ? (conversationInfo?.name || 'Group') : (otherUser?.username || otherUser?.full_name || 'traveler');
+  // 1:1 with someone who deleted their account: history stays readable, but
+  // there's no profile to open and no one to reply to.
+  const otherDeleted = !isGroup && !!otherUser?.deleted_at;
+  // Header title: group name, "Deleted account", or the other person's username / full name.
+  const name = isGroup
+    ? (conversationInfo?.name || 'Group')
+    : otherDeleted
+      ? DELETED_ACCOUNT_LABEL
+      : (otherUser?.username || otherUser?.full_name || 'traveler');
   // "Seen" shows only when the newest message (index 0) is mine and the other
   // side's last_read_at is at or after it. ISO timestamps compare correctly
   // as strings.
@@ -1364,6 +1377,7 @@ export default function ChatThread() {
         {/* Avatar + name block; tapping opens group info or the other person's profile. */}
         <Pressable
           style={styles.headerInfo}
+          disabled={otherDeleted}
           onPress={() => {
             if (isGroup) router.push({ pathname: '/group/[id]', params: { id: id as string } });
             else if (otherUser) router.push({ pathname: '/user/[id]', params: { id: otherUser.id } });
@@ -1378,7 +1392,7 @@ export default function ChatThread() {
               )}
             </View>
           ) : (
-            <Avatar uri={otherUser?.avatar_url} label={name} size={34} />
+            <Avatar uri={otherDeleted ? null : otherUser?.avatar_url} label={name} size={34} />
           )}
           <View style={{ flex: 1 }}>
             <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
@@ -1419,7 +1433,7 @@ export default function ChatThread() {
                   message={item}
                   isMine={item.sender_id === myUserId}
                   myUserId={myUserId ?? ''}
-                  senderLabel={isGroup && item.sender_id !== myUserId ? (item.sender_username || item.sender_full_name || 'traveler') : undefined}
+                  senderLabel={isGroup && item.sender_id !== myUserId ? (deletedMemberIds.has(item.sender_id) ? DELETED_ACCOUNT_LABEL : (item.sender_username || item.sender_full_name || 'traveler')) : undefined}
                   onRetry={() => handleRetry(item)}
                   onLongPress={() => { if (!item.pending) setActionSheetFor(item); }}
                   onToggleReaction={(emoji) => toggleReaction(item, emoji)}
@@ -1459,8 +1473,13 @@ export default function ChatThread() {
           </View>
         )}
 
-        {/* Bottom bar: if I've blocked this person, an Unblock bar replaces the composer. */}
-        {myBlocked ? (
+        {/* Bottom bar: a deleted account can't be replied to, so a notice
+            replaces the composer; if I've blocked this person, an Unblock bar does. */}
+        {otherDeleted ? (
+          <View style={[styles.blockedBar, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
+            <Text style={styles.blockedText}>This account has been deleted. You can still read your chat history.</Text>
+          </View>
+        ) : myBlocked ? (
           <View style={[styles.blockedBar, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
             <Text style={styles.blockedText}>You blocked {name}.</Text>
             <Pressable onPress={toggleBlock} style={styles.unblockBtn}><Text style={styles.unblockText}>Unblock</Text></Pressable>
@@ -1511,6 +1530,10 @@ export default function ChatThread() {
           { key: 'clear', label: 'Clear chat', icon: 'brush-outline', onPress: handleClear },
           { key: 'info', label: 'Group info', icon: 'information-circle-outline', onPress: () => router.push({ pathname: '/group/[id]', params: { id: id as string } }) },
           { key: 'leave', label: 'Leave group', icon: 'exit-outline', destructive: true, onPress: handleLeaveGroup },
+        ] : otherDeleted ? [
+          // Nobody left to block or report; only this side of the chat can be tidied up.
+          { key: 'clear', label: 'Clear chat', icon: 'brush-outline', onPress: handleClear },
+          { key: 'delete', label: 'Delete chat', icon: 'trash-outline', destructive: true, onPress: handleDelete },
         ] : [
           { key: 'clear', label: 'Clear chat', icon: 'brush-outline', onPress: handleClear },
           { key: 'delete', label: 'Delete chat', icon: 'trash-outline', destructive: true, onPress: handleDelete },
@@ -1547,7 +1570,7 @@ export default function ChatThread() {
 
       {/* In-thread message search overlay; only mounted once both ids are known. */}
       {id && myUserId && (
-        <MessageSearchOverlay visible={searchVisible} conversationId={id} myUserId={myUserId} onClose={() => setSearchVisible(false)} />
+        <MessageSearchOverlay visible={searchVisible} conversationId={id} myUserId={myUserId} deletedSenderIds={deletedMemberIds} onClose={() => setSearchVisible(false)} />
       )}
 
       {/* Full-screen video player for tapped video messages. */}

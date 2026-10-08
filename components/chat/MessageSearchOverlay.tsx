@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
+import { DELETED_ACCOUNT_LABEL } from '@/lib/profiles';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 import { openInMaps } from '@/lib/chat';
 import { SpotPreviewCard } from '@/components/chat/SpotPreviewCard';
@@ -74,11 +75,13 @@ type Props = {
   visible: boolean;
   conversationId: string;
   myUserId: string;
+  // Senders whose account was deleted; their results read "Deleted account".
+  deletedSenderIds?: Set<string>;
   onClose: () => void;
 };
 
 /** Search modal for one conversation. Owns its query, results and viewer state. */
-export function MessageSearchOverlay({ visible, conversationId, myUserId, onClose }: Props) {
+export function MessageSearchOverlay({ visible, conversationId, myUserId, deletedSenderIds, onClose }: Props) {
   // Safe-area insets keep the search bar clear of the status bar / notch.
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -176,7 +179,11 @@ export function MessageSearchOverlay({ visible, conversationId, myUserId, onClos
           contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: 40 }}
           renderItem={({ item }) => {
             // "You" for my own messages, otherwise the sender's name with fallbacks.
-            const senderLabel = item.sender_id === myUserId ? 'You' : (item.sender_username || item.sender_full_name || 'traveler');
+            const senderLabel = item.sender_id === myUserId
+              ? 'You'
+              : deletedSenderIds?.has(item.sender_id)
+                ? DELETED_ACCOUNT_LABEL
+                : (item.sender_username || item.sender_full_name || 'traveler');
             return (
               <View style={styles.resultRow}>
                 <Text style={styles.resultSender}>{senderLabel}</Text>
