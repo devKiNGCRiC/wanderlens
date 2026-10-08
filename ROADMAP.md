@@ -10,6 +10,10 @@ considered" before proposing or building a feature — check here first.
 - **Feed sorting** — For you / Recent / Nearby / Most liked / Most discussed with a time window (`explore_spots`, `20260940000000_explore_and_likers.sql`).
 - **Deleted accounts in chat** — shown as "Deleted account", read-only.
 - **Security hardening** — spot photo URLs validated server-side, `is_blocked` limited to the caller (`20260941000000_security_hardening.sql`).
+- **RLS baseline** — the pre-migration policies are now tracked, and recipients can no longer forge connections (`20260943000000_rls_baseline.sql`).
+- **Place names and addresses** — the poster names a spot's place; Add Spot and Spot Detail show locality, state, country, PIN and exact coordinates (`20260944000000_spot_place_details.sql`).
+- **Feed performance** — quiet background refresh, memoized post cards, nearby strips refreshed at most every 2 minutes.
+- **Signed-in-only reads** — profiles, spots, likes and comments are no longer readable without an account; signup uses `is_username_available` (`20260945000000_signed_in_only_reads.sql`).
 
 ## Next up
 

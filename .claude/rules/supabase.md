@@ -41,7 +41,13 @@ the same migration — `alter table notifications drop constraint if exists
 notifications_type_check` then re-`add constraint` with the full list,
 old + new values together.
 
-**RPCs:** `explore_spots` (Feed sorting), `get_spot_likers`, `my_blocked_ids`,
+**Reads require sign-in.** `profiles`, `spots`, `spot_likes`, `spot_comments`
+and `comment_likes` are readable only by `authenticated`
+(`20260945000000_signed_in_only_reads.sql`). Anything a signed-out screen
+needs goes through a narrow `security definer` RPC, like
+`is_username_available` for signup — never by reopening a table to anon.
+
+**RPCs:** `explore_spots` (Feed sorting), `get_spot_likers`, `my_blocked_ids`, `is_username_available`,
 `feed_spots` (legacy, no longer called), `nearby_spots`, `nearby_photographers`, `discover_people`,
 `get_spot`, `get_spot_comments`, `get_saved_spots`, `get_connection_status`,
 `get_notifications`, `get_unread_notification_count`, `mark_notifications_read`.
