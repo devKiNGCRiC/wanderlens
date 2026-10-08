@@ -434,13 +434,14 @@ export default function SpotDetail() {
           <View style={styles.actionRow}>
             {/* Heart toggles the like; the count next to it opens "Liked by". */}
             <View style={styles.likePair}>
-              <Pressable onPress={toggleLike} style={styles.likeTarget} accessibilityRole="button" accessibilityState={{ selected: liked }} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
+              <Pressable onPress={toggleLike} style={styles.likeTarget} hitSlop={{ top: 11, bottom: 11, left: 11, right: 2 }} accessibilityRole="button" accessibilityState={{ selected: liked }} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
                 <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? theme.color.ember : theme.color.cream} />
               </Pressable>
               <Pressable
                 onPress={() => router.push({ pathname: '/spot-likes/[id]', params: { id: spot.id } })}
                 disabled={likeCount === 0}
                 style={styles.likeTarget}
+                hitSlop={{ top: 14, bottom: 14, left: 2, right: 16 }}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: likeCount === 0 }}
                 accessibilityLabel={`${likeCount} ${likeCount === 1 ? 'like' : 'likes'}. See who liked this`}>
@@ -654,9 +655,10 @@ const styles = StyleSheet.create({
   // Action bar and owner delete
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: theme.color.surface2 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  // Heart and like count as two separate 44pt targets: tap the heart to like, the number to see who did.
-  likePair: { flexDirection: 'row', alignItems: 'center' },
-  likeTarget: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  // Heart and like count sit 5px apart like the other actions; hitSlop (not
+  // a wide box) makes each a ~44pt target: the heart likes, the number opens "Liked by".
+  likePair: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  likeTarget: { alignItems: 'center', justifyContent: 'center' },
   actionText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   deleteBtn: { marginTop: 16 },
   deleteBtnText: { color: theme.color.ember, fontFamily: theme.font.body, fontSize: 12.5 },

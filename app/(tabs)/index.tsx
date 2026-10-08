@@ -8,6 +8,11 @@
  * comment and save actions. A camera FAB opens the geo-tagged spot camera.
  *
  * How it works:
+ * - Refreshing feels instant after the first visit: skeletons show only on
+ *   the very first load, later focus refreshes run quietly behind the posts
+ *   on screen, unchanged posts keep their object identity, and each post is
+ *   a memoized FeedPostCard, so liking one re-renders only that card. The
+ *   nearby strips (GPS + two RPCs) refresh at most every 2 minutes.
  * - On every focus it reloads, in parallel: the feed (`explore_spots` RPC), the
  *   user's liked and saved spot ids (`spot_likes`, `saved_spots` tables) and
  *   the device location. Once location is known it calls the `nearby_spots`
@@ -35,7 +40,7 @@
  * tab comes back into view, so likes/saves made elsewhere show up here.
  */
 import { useState, useCallback, useRef } from 'react';
-import { View, Text, Image, Pressable, FlatList, StyleSheet, Linking } from 'react-native';
+import { View, Text, Image, Pressable, FlatList, StyleSheet, Linking, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,10 +55,9 @@ import { supabase } from '@/lib/supabase';
 import { PolaroidCard } from '@/components/PolaroidCard';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { FilterSheet } from '@/components/FilterSheet';
-import { PhotoCarousel } from '@/components/PhotoCarousel';
+import { FeedPostCard, type FeedPost } from '@/components/FeedPostCard';
 import { SortChips, sortUsesWindow, type FeedSort, type FeedWindow } from '@/components/SortChips';
-import { fetchSpotPhotos, photosFor, type SpotPhoto } from '@/lib/spotPhotos';
-import { formatTimeAgo } from '@/lib/formatTimeAgo';
+import { fetchSpotPhotos, type SpotPhoto } from '@/lib/spotPhotos';
 import { formatUserType } from '@/lib/formatUserType';
 import { excludeDeletedProfiles, DELETED_ACCOUNT_LABEL } from '@/lib/profiles';
 import { FeedPostSkeleton } from '@/components/skeletons/FeedPostSkeleton';
@@ -62,18 +66,6 @@ import { FeedPostSkeleton } from '@/components/skeletons/FeedPostSkeleton';
 type NearbySpot = { id: string; title: string; best_time: string | null; photo_url: string | null };
 /** One row from the nearby_photographers RPC, shown as a chip in "Photographers who've shot nearby". */
 type Photographer = { id: string; username: string | null; full_name: string | null; avatar_url: string | null; user_type: string | null; photography_genres: string[] | null };
-/**
- * One row from the explore_spots RPC: a spot plus its creator's profile fields
- * and aggregate like/comment counts, joined server-side.
- */
-type FeedPost = {
-  id: string; title: string; genre: string | null; photo_url: string | null; created_by: string | null;
-  creator_username: string | null; creator_name: string | null; creator_avatar: string | null;
-  like_count: number; comment_count: number; created_at: string;
-  // From explore_spots: the creator deleted their account; distance only for Nearby.
-  creator_deleted: boolean; distance_m: number | null;
-};
-
 /**
  * Picks the best display name for a person, from either a FeedPost
  * (creator_* fields) or a Photographer (username / full_name).
@@ -114,8 +106,19 @@ export default function FeedScreen() {
   const [photosBySpot, setPhotosBySpot] = useState<Map<string, SpotPhoto[]>>(new Map());
   // Id of the latest loadFeed call, to drop out-of-order responses.
   const feedRequestRef = useRef(0);
+  // True once the first feed has arrived: later focus refreshes run quietly
+  // behind the posts already on screen instead of showing skeletons again.
+  const hasLoadedRef = useRef(false);
+  // When the nearby strips were last refreshed; they change slowly and need
+  // GPS, so focus refreshes them at most every STRIPS_REFRESH_MS.
+  const stripsLoadedAtRef = useRef(0);
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  // Latest liked/saved sets for the stable toggle handlers below.
+  const likedIdsRef = useRef(likedIds);
+  likedIdsRef.current = likedIds;
+  const savedIdsRef = useRef(savedIds);
+  savedIdsRef.current = savedIds;
   const [genreFilter, setGenreFilter] = useState<string | null>(null);
   const [timeFilter, setTimeFilter] = useState<string | null>(null);
   // Mirror of the active filters for the focus reload below. That callback
@@ -173,8 +176,11 @@ export default function FeedScreen() {
     // Explore skeleton, so it can't be left up by a superseded call.
     setFeedError(false);
     setFeedLoading(false);
-    setPhotosBySpot(photos);
-    setFeed(posts);
+    hasLoadedRef.current = true;
+    // Keep the previous object for anything that didn't change, so the
+    // memoized FeedPostCards for those posts don't re-render on a refresh.
+    setPhotosBySpot((prev) => reusePhotos(prev, photos));
+    setFeed((prev) => reusePosts(prev, posts));
     return 'ok';
   }
 
@@ -208,16 +214,20 @@ export default function FeedScreen() {
       // useFocusEffect callbacks can't be async themselves, so the work runs
       // in an immediately-invoked async function.
       (async () => {
-        setLoading(true);
+        // Skeletons only on the very first load; afterwards the refresh runs
+        // behind the posts already showing.
+        if (!hasLoadedRef.current) setLoading(true);
         // Batch of independent requests to run concurrently (house pattern,
         // see .claude/rules/react-native.md), starting with the feed itself.
         // Location is requested once and shared: the Nearby sort waits for it,
         // every other sort loads straight away.
         const locPromise = safeLocation();
         const { genre, time } = filtersRef.current;
-        const tasks: PromiseLike<any>[] = [
-          sortRef.current.sort === 'nearby' ? locPromise.then((l) => loadFeed(genre, time, l)) : loadFeed(genre, time),
-        ];
+        const feedTask = sortRef.current.sort === 'nearby' ? locPromise.then((l) => loadFeed(genre, time, l)) : loadFeed(genre, time);
+        // Posts appear as soon as they arrive, without waiting for GPS or the
+        // nearby strips below.
+        feedTask.then(() => setLoading(false));
+        const tasks: PromiseLike<any>[] = [feedTask];
         // The signed-in user's liked and saved spot ids, so the heart and
         // bookmark icons render in the right state.
         if (session) {
@@ -233,7 +243,8 @@ export default function FeedScreen() {
         // The nearby strips need coordinates, so they only load once location
         // is known. If permission was denied, the strips keep their old data
         // (empty on first load) and are simply not rendered.
-        if (loc) {
+        if (loc && Date.now() - stripsLoadedAtRef.current > STRIPS_REFRESH_MS) {
+          stripsLoadedAtRef.current = Date.now();
           const [nearbyRes, peopleRes] = await Promise.all([
             supabase.rpc('nearby_spots', { lat: loc.lat, long: loc.lng, radius_km: 30 }),
             supabase.rpc('nearby_photographers', { lat: loc.lat, long: loc.lng, radius_km: 30 }),
@@ -278,9 +289,9 @@ export default function FeedScreen() {
    * If the write fails, the same flip is applied again to undo it, so the
    * screen never shows a like that didn't save.
    */
-  async function toggleLike(post: FeedPost) {
+  const toggleLike = useCallback(async (post: FeedPost) => {
     if (!session) return;
-    const isLiked = likedIds.has(post.id);
+    const isLiked = likedIdsRef.current.has(post.id);
     // Flips the heart and count in the given direction. Copy the Set before
     // changing it: React only re-renders when state is replaced with a new
     // object, not mutated in place.
@@ -294,15 +305,15 @@ export default function FeedScreen() {
       : await supabase.from('spot_likes').insert({ spot_id: post.id, user_id: session.user.id });
     // Roll back to the original state if the database rejected the write.
     if (error) apply(isLiked);
-  }
+  }, [session]);
 
   /**
    * Saves or unsaves a spot (the bookmark), optimistically, via the
    * saved_spots table. Same pattern as toggleLike, without a count to adjust.
    */
-  async function toggleSave(spotId: string) {
+  const toggleSave = useCallback(async (spotId: string) => {
     if (!session) return;
-    const isSaved = savedIds.has(spotId);
+    const isSaved = savedIdsRef.current.has(spotId);
     const apply = (saved: boolean) =>
       setSavedIds((prev) => { const next = new Set(prev); if (saved) next.add(spotId); else next.delete(spotId); return next; });
     apply(!isSaved);
@@ -310,7 +321,27 @@ export default function FeedScreen() {
       ? await supabase.from('saved_spots').delete().eq('spot_id', spotId).eq('user_id', session.user.id)
       : await supabase.from('saved_spots').insert({ spot_id: spotId, user_id: session.user.id });
     if (error) apply(isSaved);
-  }
+  }, [session]);
+
+  // Navigation handlers for the cards, stable so React.memo can skip rows.
+  const openSpot = useCallback((spotId: string) => router.push({ pathname: '/spot/[id]', params: { id: spotId } }), [router]);
+  const openProfile = useCallback((userId: string) => router.push({ pathname: '/user/[id]', params: { id: userId } }), [router]);
+  const openLikers = useCallback((spotId: string) => router.push({ pathname: '/spot-likes/[id]', params: { id: spotId } }), [router]);
+
+  const renderPost = useCallback(({ item }: { item: FeedPost }) => (
+    <FeedPostCard
+      post={item}
+      name={item.creator_deleted ? DELETED_ACCOUNT_LABEL : handle(item)}
+      photos={photosBySpot.get(item.id)}
+      isLiked={likedIds.has(item.id)}
+      isSaved={savedIds.has(item.id)}
+      onLike={toggleLike}
+      onSave={toggleSave}
+      onOpenSpot={openSpot}
+      onOpenProfile={openProfile}
+      onOpenLikers={openLikers}
+    />
+  ), [photosBySpot, likedIds, savedIds, toggleLike, toggleSave, openSpot, openProfile, openLikers]);
 
   // Number shown on the Filters button badge (0, 1 or 2 active filters).
   const activeFilterCount = (genreFilter ? 1 : 0) + (timeFilter ? 1 : 0);
@@ -327,6 +358,13 @@ export default function FeedScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingBottom: 110 }}
         showsVerticalScrollIndicator={false}
+        // Each post is a tall photo card: render a few up front, keep a
+        // small window around the viewport, and let Android drop off-screen
+        // views.
+        initialNumToRender={3}
+        maxToRenderPerBatch={3}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
         ListHeaderComponent={
           <View>
             {/* Hero: sunset gradient, a "sun" disc, the bell and photo-styles
@@ -448,77 +486,7 @@ export default function FeedScreen() {
             )}
           </View>
         }
-        renderItem={({ item }) => {
-          // One feed post: creator header, photo, action row (like, comment,
-          // save), then like count, caption, comment link and relative time.
-          // Tapping the photo, comment icon or "View all" opens /spot/[id].
-          const h = item.creator_deleted ? DELETED_ACCOUNT_LABEL : handle(item);
-          const isLiked = likedIds.has(item.id);
-          const isSaved = savedIds.has(item.id);
-          return (
-            <View style={styles.postCard}>
-              <Pressable
-                style={styles.postHeader}
-                disabled={item.creator_deleted}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: item.creator_deleted }}
-                accessibilityLabel={item.creator_deleted ? h : `${h}. Open profile`}
-                onPress={() => item.created_by && router.push({ pathname: '/user/[id]', params: { id: item.created_by } })}>
-                <View style={styles.postAvatar}>
-                  {item.creator_avatar && !item.creator_deleted ? <Image source={{ uri: item.creator_avatar }} style={styles.postAvatarImage} /> : <Text style={styles.postAvatarText}>{h.charAt(0).toUpperCase()}</Text>}
-                </View>
-                <Text style={styles.postCreatorName}>{h}</Text>
-                {item.genre && <Text style={styles.postGenre}>· {item.genre}</Text>}
-                {item.distance_m != null && <Text style={styles.postDistance}>{formatDistance(item.distance_m)}</Text>}
-              </Pressable>
-
-              {/* Swipe through a multi-photo post; a tap on any photo opens the spot. */}
-              <PhotoCarousel
-                photos={photosFor(photosBySpot, item)}
-                height={320}
-                style={styles.postImage}
-                label={item.title}
-                onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })}
-              />
-
-              <View style={styles.postActionsRow}>
-                <View style={styles.postActionsLeft}>
-                  <Pressable onPress={() => toggleLike(item)} style={{ marginRight: 16 }}>
-                    <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={23} color={isLiked ? theme.color.ember : theme.color.cream} />
-                  </Pressable>
-                  <Pressable onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })}>
-                    <Ionicons name="chatbubble-outline" size={21} color={theme.color.cream} />
-                  </Pressable>
-                </View>
-                <Pressable onPress={() => toggleSave(item.id)}>
-                  <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={21} color={isSaved ? theme.color.gold : theme.color.cream} />
-                </Pressable>
-              </View>
-
-              <View style={styles.postBody}>
-                {/* Opens "Liked by"; nothing to show at zero. */}
-                <Pressable
-                  onPress={() => router.push({ pathname: '/spot-likes/[id]', params: { id: item.id } })}
-                  disabled={item.like_count === 0}
-                  style={styles.likeCountBtn}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: item.like_count === 0 }}
-                  accessibilityLabel={`${item.like_count} ${item.like_count === 1 ? 'like' : 'likes'}. See who liked this`}>
-                  <Text style={styles.likeCountText}>{item.like_count} {item.like_count === 1 ? 'like' : 'likes'}</Text>
-                </Pressable>
-                {!!item.title && (
-                  <Text style={styles.captionLine}><Text style={styles.captionUsername}>{h} </Text>{item.title}</Text>
-                )}
-                {item.comment_count > 0 && (
-                  <Pressable onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })}>
-                    <Text style={styles.viewComments}>View all {item.comment_count} comments</Text>
-                  </Pressable>
-                )}
-                <Text style={styles.timeAgo}>{formatTimeAgo(item.created_at)}</Text>
-              </View>
-            </View>
-          );
-        }}
+        renderItem={renderPost}
         ListEmptyComponent={!loading && !feedLoading ? (
           sort === 'nearby' && !coords ? (
             <View style={styles.emptyBox}>
@@ -558,9 +526,27 @@ export default function FeedScreen() {
 }
 
 // Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
-/** "850 m away" / "2.4 km away" for the Nearby sort. */
-function formatDistance(meters: number) {
-  return meters < 1000 ? `${Math.round(meters)} m away` : `${(meters / 1000).toFixed(meters < 10000 ? 1 : 0)} km away`;
+// How often a focus may refresh the nearby strips (they need GPS and change slowly).
+const STRIPS_REFRESH_MS = 2 * 60 * 1000;
+
+/** The new posts, reusing the previous object for any post whose fields are unchanged. */
+function reusePosts(prev: FeedPost[], next: FeedPost[]): FeedPost[] {
+  const byId = new Map(prev.map((p) => [p.id, p]));
+  return next.map((p) => {
+    const old = byId.get(p.id);
+    return old && (Object.keys(p) as (keyof FeedPost)[]).every((k) => old[k] === p[k]) ? old : p;
+  });
+}
+
+/** The new photo map, reusing the previous array for any spot whose photos are unchanged. */
+function reusePhotos(prev: Map<string, SpotPhoto[]>, next: Map<string, SpotPhoto[]>): Map<string, SpotPhoto[]> {
+  const out = new Map<string, SpotPhoto[]>();
+  next.forEach((list, id) => {
+    const old = prev.get(id);
+    const same = old && old.length === list.length && old.every((ph, i) => ph.photo_url === list[i].photo_url);
+    out.set(id, same ? old : list);
+  });
+  return out;
 }
 
 /** Empty-state copy for the Explore list, per sort, in the app's voice. */
@@ -609,22 +595,6 @@ const styles = StyleSheet.create({
   personName: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.cream },
   personTag: { fontFamily: theme.font.bodyRegular, fontSize: 10.5, color: theme.color.muted, marginTop: 1 },
   // Feed post card
-  postCard: { marginTop: 24, paddingHorizontal: 20 },
-  postHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  postAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.color.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  postAvatarImage: { width: '100%', height: '100%' },
-  postAvatarText: { fontFamily: theme.font.display, fontSize: 12, color: theme.color.dusk },
-  postCreatorName: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
-  postGenre: { fontFamily: theme.font.mono, fontSize: 10.5, color: theme.color.gold },
-  postImage: { borderRadius: theme.radius.md },
-  postActionsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
-  postActionsLeft: { flexDirection: 'row', alignItems: 'center' },
-  postBody: { marginTop: 6 },
-  likeCountText: { fontFamily: theme.font.body, fontSize: 12.5, color: theme.color.cream },
-  captionLine: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.cream, marginTop: 4 },
-  captionUsername: { fontFamily: theme.font.body },
-  viewComments: { fontFamily: theme.font.bodyRegular, fontSize: 12, color: theme.color.muted, marginTop: 4 },
-  timeAgo: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted, marginTop: 5, letterSpacing: 0.5 },
   // Empty state and camera FAB
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 40 },
   emptyBox: { alignItems: 'center', paddingHorizontal: 40, paddingTop: 40, paddingBottom: 24 },
@@ -634,9 +604,6 @@ const styles = StyleSheet.create({
   feedErrorBox: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 20, marginTop: 12, padding: 12, borderRadius: theme.radius.md, backgroundColor: theme.color.surface },
   feedErrorText: { flex: 1, fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.cream },
   feedErrorBtn: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.color.gold },
-  postDistance: { fontFamily: theme.font.mono, fontSize: 12, color: theme.color.muted, marginLeft: 'auto' },
-  // A full 44pt row so "N likes" is easy to hit; sits between the actions and the caption.
-  likeCountBtn: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   fab: {
     position: 'absolute', right: 20, bottom: 24, width: 52, height: 52, borderRadius: 26,
     backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center',
