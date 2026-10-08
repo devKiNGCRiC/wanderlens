@@ -423,7 +423,17 @@ export default function AddSpot() {
       // best-effort; the user-facing outcome is the same either way.
       if (spotId) await supabase.from('spots').delete().eq('id', spotId);
       await removeSpotFiles(uploadedPaths);
-      if (mountedRef.current) Alert.alert("Couldn't save your spot", 'Nothing was posted. Check your connection and try again.');
+      // A Postgres/PostgREST error carries a `code`; only blame the network
+      // when the server never answered.
+      const serverRejected = typeof (err as { code?: unknown } | null)?.code === 'string';
+      if (mountedRef.current) {
+        Alert.alert(
+          "Couldn't save your spot",
+          serverRejected
+            ? 'Nothing was posted. Something went wrong on our side. Please try again in a moment.'
+            : 'Nothing was posted. Check your connection and try again.'
+        );
+      }
     } finally {
       if (mountedRef.current) {
         setUploadProgress(null);
