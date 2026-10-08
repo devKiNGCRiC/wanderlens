@@ -8,7 +8,7 @@
  * comment and save actions. A camera FAB opens the geo-tagged spot camera.
  *
  * How it works:
- * - On every focus it reloads, in parallel: the feed (`feed_spots` RPC), the
+ * - On every focus it reloads, in parallel: the feed (`explore_spots` RPC), the
  *   user's liked and saved spot ids (`spot_likes`, `saved_spots` tables) and
  *   the device location. Once location is known it calls the `nearby_spots`
  *   and `nearby_photographers` RPCs (30 km radius). nearby_photographers
@@ -20,7 +20,11 @@
  *   comment counts) arrives in one round trip instead of N+1 queries.
  * - Likes and saves are optimistic: local state flips immediately, then the
  *   insert/delete is sent to the table.
- * - Genre / time-of-day filters live in FilterSheet and re-query `feed_spots`.
+ * - Genre / time-of-day filters live in FilterSheet; the order (For you,
+ *   Recent, Nearby, Most liked, Most discussed) comes from SortChips. Both
+ *   feed into `explore_spots` (supabase/migrations/20260940000000_explore_and_likers.sql),
+ *   which replaced the untracked legacy `feed_spots` here.
+ * - Tapping "N likes" opens /spot-likes/[id], the list of who liked it.
  * - The hero label ("GOLDEN HOUR · 42M") comes from useGoldenHour, which uses
  *   the current coordinates.
  * - The bell opens /notifications and shows an unread badge from
@@ -31,7 +35,7 @@
  * tab comes back into view, so likes/saves made elsewhere show up here.
  */
 import { useState, useCallback, useRef } from 'react';
-import { View, Text, Image, Pressable, FlatList, StyleSheet } from 'react-native';
+import { View, Text, Image, Pressable, FlatList, StyleSheet, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,10 +51,11 @@ import { PolaroidCard } from '@/components/PolaroidCard';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { FilterSheet } from '@/components/FilterSheet';
 import { PhotoCarousel } from '@/components/PhotoCarousel';
+import { SortChips, sortUsesWindow, type FeedSort, type FeedWindow } from '@/components/SortChips';
 import { fetchSpotPhotos, photosFor, type SpotPhoto } from '@/lib/spotPhotos';
 import { formatTimeAgo } from '@/lib/formatTimeAgo';
 import { formatUserType } from '@/lib/formatUserType';
-import { excludeDeletedProfiles } from '@/lib/profiles';
+import { excludeDeletedProfiles, DELETED_ACCOUNT_LABEL } from '@/lib/profiles';
 import { FeedPostSkeleton } from '@/components/skeletons/FeedPostSkeleton';
 
 /** One row from the nearby_spots RPC, shown as a polaroid in "Spots near you". */
@@ -58,13 +63,15 @@ type NearbySpot = { id: string; title: string; best_time: string | null; photo_u
 /** One row from the nearby_photographers RPC, shown as a chip in "Photographers who've shot nearby". */
 type Photographer = { id: string; username: string | null; full_name: string | null; avatar_url: string | null; user_type: string | null; photography_genres: string[] | null };
 /**
- * One row from the feed_spots RPC: a spot plus its creator's profile fields
+ * One row from the explore_spots RPC: a spot plus its creator's profile fields
  * and aggregate like/comment counts, joined server-side.
  */
 type FeedPost = {
   id: string; title: string; genre: string | null; photo_url: string | null; created_by: string | null;
   creator_username: string | null; creator_name: string | null; creator_avatar: string | null;
   like_count: number; comment_count: number; created_at: string;
+  // From explore_spots: the creator deleted their account; distance only for Nearby.
+  creator_deleted: boolean; distance_m: number | null;
 };
 
 /**
@@ -86,7 +93,7 @@ export default function FeedScreen() {
   const firstName = profile?.username || profile?.full_name?.split(' ')[0] || 'there';
   // `coords` feeds the golden-hour label; `refreshLocation` asks for
   // permission and returns the current position (or null if denied).
-  const { coords, refresh: refreshLocation } = useUserLocation();
+  const { coords, permissionDenied, refresh: refreshLocation } = useUserLocation();
   const { unreadCount } = useNotifications();
   const insets = useSafeAreaInsets();
   // Live "GOLDEN HOUR / BLUE HOUR" countdown label for the hero, or null
@@ -117,27 +124,80 @@ export default function FeedScreen() {
   // and reload the unfiltered feed while the badge still showed filters.
   // A ref always holds the latest value without re-creating the callback.
   const filtersRef = useRef<{ genre: string | null; time: string | null }>({ genre: null, time: null });
+  // Explore ordering (SortChips). Recent is the default, matching the old
+  // feed. Mirrored in a ref for the same stale-closure reason as filtersRef.
+  const [sort, setSort] = useState<FeedSort>('recent');
+  const [sortWindow, setSortWindow] = useState<FeedWindow>('week');
+  const sortRef = useRef<{ sort: FeedSort; window: FeedWindow }>({ sort: 'recent', window: 'week' });
+  // Latest known coordinates, readable from the memoised focus callback.
+  const coordsRef = useRef(coords);
+  coordsRef.current = coords;
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Only the Explore list is reloading (a sort/filter change), not the whole screen.
+  const [feedLoading, setFeedLoading] = useState(false);
+  // The latest Explore request failed: a banner with Retry shows above the list.
+  const [feedError, setFeedError] = useState(false);
 
   /**
-   * Fetches up to 30 feed posts from the feed_spots RPC with the given
-   * filters (null means "no filter"), then all their photos in one more
-   * request, and replaces the feed. On error the current feed is left as-is.
-   * feed_spots is a legacy, untracked RPC, so photos are read from
-   * spot_photos alongside it rather than by changing its return columns.
+   * Fetches up to 30 posts from the explore_spots RPC with the current sort
+   * and the given filters (null means "no filter"), then all their photos in
+   * one more request, and replaces the feed. On error the current feed is
+   * left as-is.
+   * @param loc Coordinates for the Nearby sort; ignored by the others.
    */
-  async function loadFeed(genre: string | null, time: string | null) {
-    // Two quick filter changes can resolve out of order (there are two
+  async function loadFeed(genre: string | null, time: string | null, loc: { lat: number; lng: number } | null = coordsRef.current): Promise<'ok' | 'stale' | 'error'> {
+    // Quick sort/filter changes can resolve out of order (there are two
     // awaits here); only the newest request may replace the feed.
     const request = ++feedRequestRef.current;
-    const { data, error } = await supabase.rpc('feed_spots', { genre_filter: genre, time_filter: time, limit_count: 30 });
-    if (error || !data) return;
+    const { sort: s, window: w } = sortRef.current;
+    const { data, error } = await supabase.rpc('explore_spots', {
+      p_sort: s,
+      p_genre: genre,
+      p_time: time,
+      p_window: sortUsesWindow(s) ? w : 'all',
+      p_lat: loc?.lat ?? null,
+      p_lng: loc?.lng ?? null,
+      p_limit: 30,
+    });
+    if (request !== feedRequestRef.current) return 'stale';
+    if (error || !data) {
+      setFeedError(true);
+      setFeedLoading(false);
+      return 'error';
+    }
     const posts = data as FeedPost[];
     const photos = await fetchSpotPhotos(posts.map((p) => p.id));
-    if (request !== feedRequestRef.current) return;
+    if (request !== feedRequestRef.current) return 'stale';
+    // Whichever request is newest (a chip tap or a focus reload) clears the
+    // Explore skeleton, so it can't be left up by a superseded call.
+    setFeedError(false);
+    setFeedLoading(false);
     setPhotosBySpot(photos);
     setFeed(posts);
+    return 'ok';
+  }
+
+  /**
+   * Location for the Nearby sort without ever throwing: refreshLocation can
+   * reject (GPS off, timeout), and an unhandled rejection here would leave
+   * the skeletons up for good.
+   */
+  async function safeLocation() {
+    try { return await refreshLocation(); } catch { return null; }
+  }
+
+  /**
+   * Reloads the Explore list after a sort or filter change, with its own
+   * skeleton. loadFeed clears the skeleton only for the newest request, so
+   * tapping two chips quickly can't show the first chip's results under the
+   * second.
+   */
+  async function reloadExplore() {
+    setFeedLoading(true);
+    const { genre, time } = filtersRef.current;
+    const loc = sortRef.current.sort === 'nearby' ? (await safeLocation()) ?? coordsRef.current : coordsRef.current;
+    await loadFeed(genre, time, loc);
   }
 
   // Reload everything each time the Feed tab gains focus (see file header).
@@ -151,7 +211,13 @@ export default function FeedScreen() {
         setLoading(true);
         // Batch of independent requests to run concurrently (house pattern,
         // see .claude/rules/react-native.md), starting with the feed itself.
-        const tasks: PromiseLike<any>[] = [loadFeed(filtersRef.current.genre, filtersRef.current.time)];
+        // Location is requested once and shared: the Nearby sort waits for it,
+        // every other sort loads straight away.
+        const locPromise = safeLocation();
+        const { genre, time } = filtersRef.current;
+        const tasks: PromiseLike<any>[] = [
+          sortRef.current.sort === 'nearby' ? locPromise.then((l) => loadFeed(genre, time, l)) : loadFeed(genre, time),
+        ];
         // The signed-in user's liked and saved spot ids, so the heart and
         // bookmark icons render in the right state.
         if (session) {
@@ -163,7 +229,7 @@ export default function FeedScreen() {
           );
         }
         // Location runs alongside the batch; its result is the first element.
-        const [loc] = await Promise.all([refreshLocation(), ...tasks]);
+        const [loc] = await Promise.all([locPromise, ...tasks]);
         // The nearby strips need coordinates, so they only load once location
         // is known. If permission was denied, the strips keep their old data
         // (empty on first load) and are simply not rendered.
@@ -191,7 +257,19 @@ export default function FeedScreen() {
    */
   function applyFilters(genre: string | null, time: string | null) {
     filtersRef.current = { genre, time };
-    setGenreFilter(genre); setTimeFilter(time); loadFeed(genre, time);
+    setGenreFilter(genre); setTimeFilter(time);
+    reloadExplore();
+  }
+
+  /**
+   * Sort chip or time-window change: store it (state for the chips, ref for
+   * focus reloads) and reload. Nearby fetches a fresh fix (and shows the
+   * permission prompt the first time).
+   */
+  function applySort(nextSort: FeedSort, nextWindow: FeedWindow) {
+    sortRef.current = { sort: nextSort, window: nextWindow };
+    setSort(nextSort); setSortWindow(nextWindow);
+    reloadExplore();
   }
 
   /**
@@ -346,8 +424,23 @@ export default function FeedScreen() {
                 </Pressable>
               </View>
             </View>
+            <SortChips
+              sort={sort}
+              window={sortWindow}
+              onChangeSort={(s) => applySort(s, sortWindow)}
+              onChangeWindow={(w) => applySort(sort, w)}
+            />
+            {/* Error state: the list below may be from an earlier request, so say so and offer Retry. */}
+            {feedError && !feedLoading && (
+              <View style={styles.feedErrorBox}>
+                <Text style={styles.feedErrorText}>Couldn&apos;t load these spots. Check your connection.</Text>
+                <Pressable onPress={reloadExplore} style={styles.feedErrorBtn} accessibilityRole="button" accessibilityLabel="Retry loading spots">
+                  <Text style={styles.emptyActionText}>Retry</Text>
+                </Pressable>
+              </View>
+            )}
             {/* Loading state: two skeleton posts under the header */}
-            {loading && (
+            {(loading || feedLoading) && (
               <>
                 <FeedPostSkeleton />
                 <FeedPostSkeleton />
@@ -359,17 +452,24 @@ export default function FeedScreen() {
           // One feed post: creator header, photo, action row (like, comment,
           // save), then like count, caption, comment link and relative time.
           // Tapping the photo, comment icon or "View all" opens /spot/[id].
-          const h = handle(item);
+          const h = item.creator_deleted ? DELETED_ACCOUNT_LABEL : handle(item);
           const isLiked = likedIds.has(item.id);
           const isSaved = savedIds.has(item.id);
           return (
             <View style={styles.postCard}>
-              <Pressable style={styles.postHeader} onPress={() => item.created_by && router.push({ pathname: '/user/[id]', params: { id: item.created_by } })}>
+              <Pressable
+                style={styles.postHeader}
+                disabled={item.creator_deleted}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: item.creator_deleted }}
+                accessibilityLabel={item.creator_deleted ? h : `${h}. Open profile`}
+                onPress={() => item.created_by && router.push({ pathname: '/user/[id]', params: { id: item.created_by } })}>
                 <View style={styles.postAvatar}>
-                  {item.creator_avatar ? <Image source={{ uri: item.creator_avatar }} style={styles.postAvatarImage} /> : <Text style={styles.postAvatarText}>{h.charAt(0).toUpperCase()}</Text>}
+                  {item.creator_avatar && !item.creator_deleted ? <Image source={{ uri: item.creator_avatar }} style={styles.postAvatarImage} /> : <Text style={styles.postAvatarText}>{h.charAt(0).toUpperCase()}</Text>}
                 </View>
                 <Text style={styles.postCreatorName}>{h}</Text>
                 {item.genre && <Text style={styles.postGenre}>· {item.genre}</Text>}
+                {item.distance_m != null && <Text style={styles.postDistance}>{formatDistance(item.distance_m)}</Text>}
               </Pressable>
 
               {/* Swipe through a multi-photo post; a tap on any photo opens the spot. */}
@@ -396,7 +496,16 @@ export default function FeedScreen() {
               </View>
 
               <View style={styles.postBody}>
-                <Text style={styles.likeCountText}>{item.like_count} likes</Text>
+                {/* Opens "Liked by"; nothing to show at zero. */}
+                <Pressable
+                  onPress={() => router.push({ pathname: '/spot-likes/[id]', params: { id: item.id } })}
+                  disabled={item.like_count === 0}
+                  style={styles.likeCountBtn}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: item.like_count === 0 }}
+                  accessibilityLabel={`${item.like_count} ${item.like_count === 1 ? 'like' : 'likes'}. See who liked this`}>
+                  <Text style={styles.likeCountText}>{item.like_count} {item.like_count === 1 ? 'like' : 'likes'}</Text>
+                </Pressable>
                 {!!item.title && (
                   <Text style={styles.captionLine}><Text style={styles.captionUsername}>{h} </Text>{item.title}</Text>
                 )}
@@ -410,7 +519,25 @@ export default function FeedScreen() {
             </View>
           );
         }}
-        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No posts match this filter yet.</Text> : null}
+        ListEmptyComponent={!loading && !feedLoading ? (
+          sort === 'nearby' && !coords ? (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyPrompt}>
+                {permissionDenied ? 'Location access is off for Wanderlens. Allow it in Settings to see spots near you.' : 'Turn on location to see spots near you.'}
+              </Text>
+              {/* Once denied, asking again does nothing, so send the user to Settings instead. */}
+              <Pressable
+                onPress={() => (permissionDenied ? Linking.openSettings() : applySort('nearby', sortWindow))}
+                style={styles.emptyAction}
+                accessibilityRole="button"
+                accessibilityLabel={permissionDenied ? 'Open Settings' : 'Use my location'}>
+                <Text style={styles.emptyActionText}>{permissionDenied ? 'Open Settings' : 'Use my location'}</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>{emptyMessage(sort, sortWindow, activeFilterCount > 0)}</Text>
+          )
+        ) : null}
       />
       {/* Bottom sheet for choosing genre / time-of-day filters */}
       <FilterSheet visible={filterSheetVisible} onClose={() => setFilterSheetVisible(false)} genre={genreFilter} time={timeFilter} onApply={applyFilters} />
@@ -431,6 +558,24 @@ export default function FeedScreen() {
 }
 
 // Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
+/** "850 m away" / "2.4 km away" for the Nearby sort. */
+function formatDistance(meters: number) {
+  return meters < 1000 ? `${Math.round(meters)} m away` : `${(meters / 1000).toFixed(meters < 10000 ? 1 : 0)} km away`;
+}
+
+/** Empty-state copy for the Explore list, per sort, in the app's voice. */
+function emptyMessage(sort: FeedSort, window: FeedWindow, filtered: boolean) {
+  if (filtered) return 'No posts match this filter yet. Try a different genre or time of day.';
+  const period = window === 'week' ? 'this week' : window === 'month' ? 'this month' : 'yet';
+  switch (sort) {
+    case 'nearby': return 'No spots within 100 km yet. Be the first to add one.';
+    case 'liked': return `Nothing has been liked ${period}. Tap the heart on a spot you love.`;
+    case 'discussed': return `No conversations ${period}. Comment on a spot to start one.`;
+    case 'for_you': return 'Nothing here yet. Connect with photographers and add your genres to tune this.';
+    default: return 'No spots yet. Be the first to share one.';
+  }
+}
+
 const styles = StyleSheet.create({
   // Hero, bell / photo-styles buttons, greeting
   hero: { height: 320, overflow: 'hidden' },
@@ -482,6 +627,16 @@ const styles = StyleSheet.create({
   timeAgo: { fontFamily: theme.font.mono, fontSize: 9.5, color: theme.color.muted, marginTop: 5, letterSpacing: 0.5 },
   // Empty state and camera FAB
   emptyText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', padding: 40 },
+  emptyBox: { alignItems: 'center', paddingHorizontal: 40, paddingTop: 40, paddingBottom: 24 },
+  emptyPrompt: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', marginBottom: 16 },
+  emptyAction: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: theme.color.gold, borderRadius: theme.radius.lg, paddingHorizontal: 20 },
+  emptyActionText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.gold },
+  feedErrorBox: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 20, marginTop: 12, padding: 12, borderRadius: theme.radius.md, backgroundColor: theme.color.surface },
+  feedErrorText: { flex: 1, fontFamily: theme.font.bodyRegular, fontSize: 12.5, color: theme.color.cream },
+  feedErrorBtn: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.color.gold },
+  postDistance: { fontFamily: theme.font.mono, fontSize: 12, color: theme.color.muted, marginLeft: 'auto' },
+  // A full 44pt row so "N likes" is easy to hit; sits between the actions and the caption.
+  likeCountBtn: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   fab: {
     position: 'absolute', right: 20, bottom: 24, width: 52, height: 52, borderRadius: 26,
     backgroundColor: theme.color.ember, alignItems: 'center', justifyContent: 'center',

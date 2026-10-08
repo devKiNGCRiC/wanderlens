@@ -402,10 +402,21 @@ export default function SpotDetail() {
 
           {/* Action bar: like, comment count, share, send in a chat, save, and view on map. */}
           <View style={styles.actionRow}>
-            <Pressable onPress={toggleLike} style={styles.actionBtn}>
-              <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? theme.color.ember : theme.color.cream} />
-              <Text style={styles.actionText}>{likeCount}</Text>
-            </Pressable>
+            {/* Heart toggles the like; the count next to it opens "Liked by". */}
+            <View style={styles.likePair}>
+              <Pressable onPress={toggleLike} style={styles.likeTarget} accessibilityRole="button" accessibilityState={{ selected: liked }} accessibilityLabel={liked ? 'Unlike' : 'Like'}>
+                <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={liked ? theme.color.ember : theme.color.cream} />
+              </Pressable>
+              <Pressable
+                onPress={() => router.push({ pathname: '/spot-likes/[id]', params: { id: spot.id } })}
+                disabled={likeCount === 0}
+                style={styles.likeTarget}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: likeCount === 0 }}
+                accessibilityLabel={`${likeCount} ${likeCount === 1 ? 'like' : 'likes'}. See who liked this`}>
+                <Text style={styles.actionText}>{likeCount}</Text>
+              </Pressable>
+            </View>
             <View style={styles.actionBtn}>
               <Ionicons name="chatbubble-outline" size={20} color={theme.color.cream} />
               <Text style={styles.actionText}>{comments.length}</Text>
@@ -607,6 +618,9 @@ const styles = StyleSheet.create({
   // Action bar and owner delete
   actionRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: theme.color.surface2 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  // Heart and like count as two separate 44pt targets: tap the heart to like, the number to see who did.
+  likePair: { flexDirection: 'row', alignItems: 'center' },
+  likeTarget: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   actionText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
   deleteBtn: { marginTop: 16 },
   deleteBtnText: { color: theme.color.ember, fontFamily: theme.font.body, fontSize: 12.5 },

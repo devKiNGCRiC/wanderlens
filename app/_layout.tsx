@@ -145,6 +145,7 @@ function RootNavigator() {
             reachable regardless of auth state, and leaves it in history
             after sign-out. */}
         <Stack.Screen name="spot/[id]" />
+        <Stack.Screen name="spot-likes/[id]" />
         <Stack.Screen name="user/[id]" />
         <Stack.Screen name="chat/[id]" />
         <Stack.Screen name="chat/archived" />
