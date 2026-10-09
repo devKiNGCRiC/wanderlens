@@ -26,6 +26,7 @@ import { useAuth } from '@/context/AuthProvider';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
 import { PolaroidGridSkeleton } from '@/components/skeletons/PolaroidGridSkeleton';
+import { fetchSpotPhotos } from '@/lib/spotPhotos';
 
 /** One row returned by the `get_saved_spots` RPC: just enough to draw a grid card. */
 type SavedSpot = { id: string; title: string; photo_url: string | null; genre: string | null };
@@ -41,6 +42,9 @@ export default function SavedScreen() {
   // The saved spots list, and whether the first fetch (or a re-focus fetch)
   // is in flight; `loading` starts true so the skeleton shows immediately.
   const [saved, setSaved] = useState<SavedSpot[]>([]);
+  // Photos per saved spot, for the polaroid's stack badge. get_saved_spots
+  // is a legacy, untracked RPC, so the count is read alongside it.
+  const [photoCounts, setPhotoCounts] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
 
   // useFocusEffect runs the callback each time this screen gains focus (not
@@ -53,7 +57,11 @@ export default function SavedScreen() {
       if (!session) return;
       setLoading(true);
       const { data } = await supabase.rpc('get_saved_spots', { uid: session.user.id });
-      setSaved((data as SavedSpot[]) ?? []);
+      const rows = (data as SavedSpot[]) ?? [];
+      // One extra request for every saved spot's photos; a failure just means no badges.
+      const photos = await fetchSpotPhotos(rows.map((r) => r.id));
+      setPhotoCounts(new Map([...photos].map(([id, list]) => [id, list.length])));
+      setSaved(rows);
       setLoading(false);
     })();
   }, [session]));
@@ -81,7 +89,7 @@ export default function SavedScreen() {
         numColumns={3}
         contentContainerStyle={{ padding: 3, paddingBottom: 40 }}
         renderItem={({ item, index }) => (
-          <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
+          <PolaroidGridItem photoUrl={item.photo_url} caption={item.genre} rotate={rotationFor(index)} photoCount={photoCounts.get(item.id) ?? 1} onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.id } })} />
         )}
         ListHeaderComponent={loading ? <PolaroidGridSkeleton /> : null}
         ListEmptyComponent={!loading ? <Text style={styles.emptyText}>Nothing saved yet — tap the bookmark icon on any spot to save it here.</Text> : null}

@@ -52,7 +52,7 @@ import { useSpotCameraStore, type CapturedPhoto } from '@/store/spotCamera';
  */
 type GeoData = { lat: number | null; lng: number | null; altitude: number | null; placeName: string | null; address: string | null; weatherTempC: number | null; weatherCondition: string | null; mapImageUri: string | null };
 /** The raw capture from expo-camera, plus an ISO timestamp taken right after the shutter. */
-type Photo = { uri: string; base64: string; width: number; height: number; capturedAt: string };
+type Photo = { uri: string; width: number; height: number; capturedAt: string };
 
 // Same free OpenFreeMap style already used by the main Map tab (app/(tabs)/map.tsx)
 // — the mini-map on the geo-tag card should look like the same map, and it
@@ -108,18 +108,24 @@ export default function SpotCamera() {
   const [savingToGallery, setSavingToGallery] = useState(false);
 
   /**
-   * Shutter handler. Takes a compressed (quality 0.6) photo with base64 so it
-   * can be uploaded later, switches to the review screen, and starts the
-   * geo lookup without awaiting it. Ignores taps while a capture is running.
+   * Shutter handler. Takes the photo as a local file, switches to the review
+   * screen, and starts the geo lookup without awaiting it. Ignores taps
+   * while a capture is running.
+   *
+   * No base64 here: add-spot resizes and encodes each photo only at upload
+   * (lib/spotPhotos.ts), so holding a full-size base64 copy just wasted
+   * memory. Quality 0.85 rather than 0.6 because the upload step already
+   * re-compresses; compressing twice hard visibly degraded photos, and the
+   * raw "Save to gallery" copy now keeps more detail too.
    */
   async function handleCapture() {
     if (!cameraRef.current || capturing) return;
     setCapturing(true);
     try {
-      const result = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.6 });
-      if (!result?.base64) return;
+      const result = await cameraRef.current.takePictureAsync({ quality: 0.85 });
+      if (!result?.uri) return;
       const capturedAt = new Date().toISOString();
-      setPhoto({ uri: result.uri, base64: result.base64, width: result.width, height: result.height, capturedAt });
+      setPhoto({ uri: result.uri, width: result.width, height: result.height, capturedAt });
       // Deliberately not awaited: the review screen shows immediately.
       resolveGeoData();
     } finally {
@@ -231,7 +237,8 @@ export default function SpotCamera() {
     if (!photo) return;
     const captured: CapturedPhoto = {
       uri: photo.uri,
-      base64: photo.base64,
+      width: photo.width,
+      height: photo.height,
       lat: geo?.lat ?? null,
       lng: geo?.lng ?? null,
       altitude: geo?.altitude ?? null,

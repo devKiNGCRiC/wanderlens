@@ -16,8 +16,9 @@ import { create } from 'zustand';
 export type CapturedPhoto = {
   // Local file URI of the photo.
   uri: string;
-  // Same photo as base64, ready for upload.
-  base64: string;
+  // Pixel size, so add-spot can resize without decoding the file first.
+  width: number;
+  height: number;
   lat: number | null;
   lng: number | null;
   altitude: number | null;
