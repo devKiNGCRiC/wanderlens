@@ -227,6 +227,16 @@ export function formatPlaceLine(d: Pick<PlaceDetails, 'locality' | 'state' | 'co
   return [d.locality, d.state, d.country, d.postcode ? `PIN ${d.postcode}` : null].filter(Boolean).join(' · ');
 }
 
+/**
+ * "Sela Pass, Tawang, Arunachal Pradesh, India" for spots.location_label.
+ * Parts already in the name (a place named after its town) aren't repeated,
+ * compared case-insensitively.
+ */
+export function composeLocationLabel(name: string, d: Pick<PlaceDetails, 'locality' | 'state' | 'country'>): string {
+  const parts = [name, d.locality, d.state, d.country].filter((p): p is string => !!p && p.trim().length > 0);
+  return parts.filter((p, i) => parts.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i).join(', ');
+}
+
 /** "27.50421° N, 92.10372° E": decimal degrees to 5 places (about 1 m). */
 export function formatDecimalCoords(lat: number, lng: number): string {
   const ns = lat >= 0 ? 'N' : 'S';

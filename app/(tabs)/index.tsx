@@ -58,6 +58,7 @@ import { FilterSheet } from '@/components/FilterSheet';
 import { FeedPostCard, type FeedPost } from '@/components/FeedPostCard';
 import { SortChips, sortUsesWindow, type FeedSort, type FeedWindow } from '@/components/SortChips';
 import { fetchSpotPhotos, type SpotPhoto } from '@/lib/spotPhotos';
+import { reuseUnchangedRows, reuseUnchangedPhotos } from '@/lib/reuseUnchanged';
 import { formatUserType } from '@/lib/formatUserType';
 import { excludeDeletedProfiles, DELETED_ACCOUNT_LABEL } from '@/lib/profiles';
 import { FeedPostSkeleton } from '@/components/skeletons/FeedPostSkeleton';
@@ -179,8 +180,8 @@ export default function FeedScreen() {
     hasLoadedRef.current = true;
     // Keep the previous object for anything that didn't change, so the
     // memoized FeedPostCards for those posts don't re-render on a refresh.
-    setPhotosBySpot((prev) => reusePhotos(prev, photos));
-    setFeed((prev) => reusePosts(prev, posts));
+    setPhotosBySpot((prev) => reuseUnchangedPhotos(prev, photos));
+    setFeed((prev) => reuseUnchangedRows(prev, posts));
     return 'ok';
   }
 
@@ -528,26 +529,6 @@ export default function FeedScreen() {
 // Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
 // How often a focus may refresh the nearby strips (they need GPS and change slowly).
 const STRIPS_REFRESH_MS = 2 * 60 * 1000;
-
-/** The new posts, reusing the previous object for any post whose fields are unchanged. */
-function reusePosts(prev: FeedPost[], next: FeedPost[]): FeedPost[] {
-  const byId = new Map(prev.map((p) => [p.id, p]));
-  return next.map((p) => {
-    const old = byId.get(p.id);
-    return old && (Object.keys(p) as (keyof FeedPost)[]).every((k) => old[k] === p[k]) ? old : p;
-  });
-}
-
-/** The new photo map, reusing the previous array for any spot whose photos are unchanged. */
-function reusePhotos(prev: Map<string, SpotPhoto[]>, next: Map<string, SpotPhoto[]>): Map<string, SpotPhoto[]> {
-  const out = new Map<string, SpotPhoto[]>();
-  next.forEach((list, id) => {
-    const old = prev.get(id);
-    const same = old && old.length === list.length && old.every((ph, i) => ph.photo_url === list[i].photo_url);
-    out.set(id, same ? old : list);
-  });
-  return out;
-}
 
 /** Empty-state copy for the Explore list, per sort, in the app's voice. */
 function emptyMessage(sort: FeedSort, window: FeedWindow, filtered: boolean) {
