@@ -123,6 +123,8 @@ export default function SpotDetail() {
   } | null>(null);
   // Where the spot is: the poster's own place name and the address parts
   // (20260944000000_spot_place_details.sql). Older spots only have location_label.
+  // Set once the owner has edited the spot (20260947000000_edit_spot.sql).
+  const [editedAt, setEditedAt] = useState<string | null>(null);
   const [place, setPlace] = useState<{
     place_name: string | null; place_locality: string | null; place_state: string | null;
     place_country: string | null; place_postcode: string | null; location_label: string | null;
@@ -148,7 +150,7 @@ export default function SpotDetail() {
     const [{ data: spotData, error: spotError }, { data: extraRow, error: extraError }, photoMap] = await Promise.all([
       supabase.rpc('get_spot', { spot_id: id }).single(),
       supabase.from('spots')
-        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name, capture_address, place_name, place_locality, place_state, place_country, place_postcode, location_label')
+        .select('styled_photo_url, capture_lat, capture_lng, capture_altitude, captured_at, weather_temp_c, weather_condition, capture_place_name, capture_address, place_name, place_locality, place_state, place_country, place_postcode, location_label, edited_at')
         .eq('id', id).maybeSingle(),
       fetchSpotPhotos([id]),
     ]);
@@ -169,6 +171,7 @@ export default function SpotDetail() {
     setStyledPhotoUrl(extraRow?.styled_photo_url ?? null);
     setGeoTag(extraRow ?? null);
     setPlace(extraRow ?? null);
+    setEditedAt(extraRow?.edited_at ?? null);
 
     // Everything below is independent, so fire it all at once (house
     // pattern, see .claude/rules/react-native.md) instead of one by one.
@@ -417,7 +420,8 @@ export default function SpotDetail() {
             {spot.best_time && <View style={styles.tag}><Text style={styles.tagText}>{spot.best_time}</Text></View>}
           </View>
           {spot.description && <Text style={styles.description}>{spot.description}</Text>}
-          <Text style={styles.timeAgo}>{formatTimeAgo(spot.created_at)}</Text>
+          {/* "· edited": people may have liked or commented on an earlier version. */}
+          <Text style={styles.timeAgo}>{formatTimeAgo(spot.created_at)}{editedAt ? ' · edited' : ''}</Text>
           {/* Live-capture geo tag: place, coordinates in degrees/minutes/seconds, altitude and weather, shown only when capture coordinates exist. */}
           {geoTag?.capture_lat != null && geoTag?.capture_lng != null && (
             <>
@@ -467,9 +471,19 @@ export default function SpotDetail() {
             </Pressable>
           </View>
 
-          {/* Delete button, visible only to the spot's creator. */}
+          {/* Edit and Delete, visible only to the spot's creator. */}
           {spot.created_by === session?.user.id && (
-            <Pressable onPress={handleDelete} style={styles.deleteBtn}><Text style={styles.deleteBtnText}>Delete spot</Text></Pressable>
+            <View style={styles.ownerRow}>
+              {/* Edit reuses Add Spot in edit mode; it refreshes this screen on the way back (useFocusEffect). */}
+              <Pressable onPress={() => router.push({ pathname: '/add-spot', params: { editId: spot.id } })} style={styles.ownerBtn} accessibilityRole="button" accessibilityLabel="Edit spot">
+                <Ionicons name="create-outline" size={15} color={theme.color.gold} />
+                <Text style={styles.editBtnText}>Edit spot</Text>
+              </Pressable>
+              <Pressable onPress={handleDelete} style={styles.ownerBtn} accessibilityRole="button" accessibilityLabel="Delete spot">
+                <Ionicons name="trash-outline" size={15} color={theme.color.ember} />
+                <Text style={styles.deleteBtnText}>Delete spot</Text>
+              </Pressable>
+            </View>
           )}
 
           {/* The viewer's private notes for this spot, with an "Add note" shortcut into the note editor. */}
@@ -660,7 +674,9 @@ const styles = StyleSheet.create({
   likePair: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   likeTarget: { alignItems: 'center', justifyContent: 'center' },
   actionText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.cream },
-  deleteBtn: { marginTop: 16 },
+  ownerRow: { flexDirection: 'row', gap: 24, marginTop: 12 },
+  ownerBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 44 },
+  editBtnText: { color: theme.color.gold, fontFamily: theme.font.body, fontSize: 12.5 },
   deleteBtnText: { color: theme.color.ember, fontFamily: theme.font.body, fontSize: 12.5 },
   // Notes section
   notesSection: { marginTop: 20 },

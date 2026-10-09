@@ -63,9 +63,11 @@ store/          Zustand stores (locationPicker.ts)
 **Built:** auth + onboarding, own/public profile, map with clustering, add spot
 (1–10 photos with a cover, 3-way location: GPS / search / tap-to-pin, geo-tag
 camera), feed (personalized strips + filter sheet + sort chips + photo
-carousel), spot detail (threaded comments, likes, "Liked by", share), connect
+carousel), spot detail (threaded comments, likes, "Liked by", share, owner
+Edit — Add Spot in `?editId=` mode, saved via `save_spot_edit`), connect
 (discover/requests/connections with full lifecycle, trip matching), chat and
-the notification bell, notes, account deletion, the two AI features.
+the notification bell, notes, account deletion, forgot-password, the live
+golden-hour countdown, the two AI features.
 
 **Chat and notifications are built** (see `.claude/rules/supabase.md`). The
 `conversations`/`conversation_members` RLS handles a known Postgres
@@ -74,9 +76,8 @@ pattern for any policy that checks membership of its own table.
 
 **Deliberately deferred — this list exists so these aren't re-proposed as new
 ideas.** Full list with rationale in `wanderlens-project-doc.md` §8: voice/video
-calling, real push notifications, PDF trail export, Edit Post (delete-and-recreate
-only today), public/private accounts, stories, OTP signup, forgot-password,
-a live sunrise/sunset feed API, a `ShapeSource`/`SymbolLayer` map-pin rewrite
+calling, real push notifications, PDF trail export, public/private accounts,
+stories, OTP signup, a `ShapeSource`/`SymbolLayer` map-pin rewrite
 (current `ViewAnnotation` approach has a known async-image snapshot-timing
 quirk, mitigated by pre-fetching), an activity tracker.
 

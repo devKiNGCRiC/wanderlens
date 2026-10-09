@@ -11,6 +11,7 @@
  */
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { decode } from 'base64-arraybuffer';
+import { File, Paths } from 'expo-file-system';
 import { supabase } from '@/lib/supabase';
 
 /** Hard cap, matched by the `position between 0 and 9` check in the migration. */
@@ -119,7 +120,7 @@ export async function uploadSpotPhoto(userId: string, uri: string, index: number
 const PUBLIC_PREFIX = '/storage/v1/object/public/spot-photos/';
 
 /** Object key from a public spot-photos URL, or null for any other URL. */
-function pathFromPublicUrl(url: string | null): string | null {
+export function pathFromPublicUrl(url: string | null): string | null {
   if (!url) return null;
   const at = url.indexOf(PUBLIC_PREFIX);
   return at === -1 ? null : decodeURIComponent(url.slice(at + PUBLIC_PREFIX.length));
@@ -152,4 +153,47 @@ export async function removeSpotFiles(paths: string[]): Promise<void> {
   if (paths.length === 0) return;
   const { error } = await supabase.storage.from('spot-photos').remove(paths);
   if (error) console.warn('spot-photos cleanup failed', error.message);
+}
+
+/** One stored photo of a spot, as the edit screen needs it (with its storage key). */
+export type SpotPhotoRecord = { storage_path: string; photo_url: string; width: number; height: number };
+
+/** A spot's photos in order (cover first), with storage keys; empty for spots posted before multi-photo or on error. */
+export async function fetchSpotPhotoRecords(spotId: string): Promise<SpotPhotoRecord[]> {
+  const { data, error } = await supabase
+    .from('spot_photos')
+    .select('storage_path, width, height')
+    .eq('spot_id', spotId)
+    .order('position');
+  if (error || !data) return [];
+  return (data as { storage_path: string; width: number; height: number }[]).map((r) => ({ ...r, photo_url: publicUrl(r.storage_path) }));
+}
+
+/**
+ * A local file URI for `uri`: downloads a remote photo (an existing spot's,
+ * when editing) into the cache first, since the image manipulator works on
+ * local files. Local URIs are returned as they are.
+ */
+export async function toLocalUri(uri: string): Promise<string> {
+  if (!uri.startsWith('http')) return uri;
+  const cached = localCopies.get(uri);
+  if (cached) return cached;
+  const destination = new File(Paths.cache, `wanderlens_edit_${Date.now()}.jpg`);
+  const downloaded = await File.downloadFileAsync(uri, destination);
+  localCopies.set(uri, downloaded.uri);
+  return downloaded.uri;
+}
+
+// Remote URL -> its downloaded copy, so the style preview and the AI
+// caption don't download the same cover again (the cache dir is OS-managed).
+const localCopies = new Map<string, string>();
+
+/** Uploads a styled cover (base64 JPEG) to the user's folder. */
+export async function uploadStyledCover(userId: string, base64: string): Promise<{ storage_path: string; photo_url: string }> {
+  const storagePath = `${userId}/${Date.now()}_styled.jpg`;
+  const { error } = await supabase.storage
+    .from('spot-photos')
+    .upload(storagePath, decode(base64), { contentType: 'image/jpeg' });
+  if (error) throw error;
+  return { storage_path: storagePath, photo_url: publicUrl(storagePath) };
 }

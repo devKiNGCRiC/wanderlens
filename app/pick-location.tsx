@@ -17,6 +17,9 @@
  *   level, falling back to the device geocoder). The pause keeps quick
  *   exploratory taps within OpenStreetMap's ~1 request/second usage policy,
  *   and a superseded lookup is aborted.
+ * - Edit mode passes `originLat` / `originLng` / `maxMeters`: a pin further
+ *   than that from where the spot was first posted can't be confirmed (the
+ *   server enforces the same limit).
  * - "Use this location" is disabled until the address for the CURRENT pin
  *   has arrived, so a pin can never be saved with another point's address.
  *   It writes { lat, lng, details } into the `useLocationPickerStore`
@@ -34,6 +37,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '@/constants/theme';
 import { placeDetails, formatPlaceLine, formatDecimalCoords, type PlaceDetails } from '@/lib/geocoding';
 import { useLocationPickerStore } from '@/store/locationPicker';
+import { haversineMeters } from '@/lib/clusterSpots';
 import { ScreenBackground } from '@/components/ScreenBackground';
 
 // OpenFreeMap vector style, the same free tile source used by the other maps in the app.
@@ -64,7 +68,7 @@ export default function PickLocation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   // Route params always arrive as strings, so they are converted with Number() below.
-  const params = useLocalSearchParams<{ lat?: string; lng?: string; details?: string }>();
+  const params = useLocalSearchParams<{ lat?: string; lng?: string; details?: string; originLat?: string; originLng?: string; maxMeters?: string }>();
   const setPicked = useLocationPickerStore((s) => s.setPicked);
 
   // Start at the caller's coordinates, or at these fixed default coordinates
@@ -147,7 +151,11 @@ export default function PickLocation() {
   const placeLine = details ? formatPlaceLine(details) : '';
   const nothingFound = !!details && !details.name && !placeLine;
   const title = !details ? 'Locating…' : nothingFound ? 'No address found here' : (details.name || placeLine);
-  const canConfirm = !!details && !resolving;
+  // Edit mode's move limit, measured from where the spot was first posted.
+  const origin = params.originLat && params.originLng ? { lat: Number(params.originLat), lng: Number(params.originLng) } : null;
+  const maxMeters = params.maxMeters ? Number(params.maxMeters) : null;
+  const tooFar = !!origin && !!maxMeters && haversineMeters(origin.lat, origin.lng, point.lat, point.lng) > maxMeters;
+  const canConfirm = !!details && !resolving && !tooFar;
 
   // Layout: full-screen map with a pin, a floating back button, and a
   // bottom sheet showing the address, coordinates and the confirm button.
@@ -181,14 +189,23 @@ export default function PickLocation() {
         <Text style={styles.metaText} selectable accessibilityLabel={spokenCoords(point.lat, point.lng)}>
           {formatDecimalCoords(point.lat, point.lng)}
         </Text>
+        {/* Edit mode: the limit, explained before (not only after) going over it. */}
+        {maxMeters ? (
+          <Text style={[styles.limitText, tooFar && styles.limitTextOver]}>
+            Edits can move the pin up to {maxMeters / 1000} km from where it was first posted.
+          </Text>
+        ) : null}
         <Pressable
           onPress={confirm}
           disabled={!canConfirm}
+          accessibilityLabel={tooFar ? `Too far. Edits can move the pin up to ${(maxMeters ?? 0) / 1000} km from where it was first posted.` : undefined}
           style={[styles.confirmBtn, !canConfirm && styles.confirmBtnDisabled]}
           accessibilityRole="button"
           accessibilityState={{ disabled: !canConfirm, busy: resolving }}
         >
-          <Text style={styles.confirmBtnText}>{canConfirm ? 'Use this location' : 'Finding the address…'}</Text>
+          <Text style={styles.confirmBtnText} numberOfLines={1}>
+            {tooFar ? 'Move closer to the original spot' : canConfirm ? 'Use this location' : 'Finding the address…'}
+          </Text>
         </Pressable>
       </View>
     </ScreenBackground>
@@ -214,5 +231,7 @@ const styles = StyleSheet.create({
   metaText: { fontFamily: theme.font.mono, fontSize: 12, color: theme.color.cream, marginTop: 8, textAlign: 'center' },
   confirmBtn: { backgroundColor: theme.color.gold, borderRadius: theme.radius.md, minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 16 },
   confirmBtnDisabled: { opacity: 0.5 },
+  limitText: { fontFamily: theme.font.bodyRegular, fontSize: 12, color: theme.color.muted, textAlign: 'center', marginTop: 12 },
+  limitTextOver: { color: theme.color.ember },
   confirmBtnText: { fontFamily: theme.font.body, fontSize: 14.5, color: theme.color.dusk },
 });

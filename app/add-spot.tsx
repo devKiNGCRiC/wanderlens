@@ -1,5 +1,5 @@
 /**
- * Route: /add-spot, "Add a spot" modal.
+ * Route: /add-spot, "Add a spot" modal, and "Edit spot" with `?editId=<id>`.
  *
  * Purpose: the form a user fills in to publish a new photo spot to the
  * community map, the first pillar of Wanderlens (a crowdsourced, geo-tagged
@@ -28,6 +28,13 @@
  *   row with a PostGIS point, then one `spot_photos` row per photo. Any
  *   failure rolls all of it back (see lib/spotPhotos.ts).
  *
+ * Edit mode (`editId`): the same form, loaded from the existing spot. The
+ * owner can change the text, place name, photos and cover, and the photo
+ * style, and nudge the pin (up to 2 km from where it was first posted; the
+ * server enforces this too). "I'm here now" and search are hidden, since a
+ * different place would be a different spot. Saving goes through
+ * updateSpot (lib/spotSave.ts); new spots through createSpot.
+ *
  * Why Zustand for the camera and map-picker results: expo-router screens
  * can't return a value to the screen that opened them, so the modal writes
  * to a tiny store and this screen reads it when it regains focus (see
@@ -38,12 +45,11 @@
  *   only as large as that preview (at most 280px square here).
  * - Switching location mode clears any already-resolved location.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, Image, StyleSheet, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { decode } from 'base64-arraybuffer';
-import { useRouter, useFocusEffect, Stack } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams, useNavigation, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -59,7 +65,9 @@ import { PhotoStylePicker } from '@/components/PhotoStylePicker';
 import { CaptionFontPicker } from '@/components/CaptionFontPicker';
 import { captureViewAsBase64 } from '@/lib/media';
 import { PhotoPickerStrip } from '@/components/PhotoPickerStrip';
-import { MAX_SPOT_PHOTOS, resizeToJpeg, uploadSpotPhoto, removeSpotFiles, type UploadedPhoto } from '@/lib/spotPhotos';
+import { MAX_SPOT_PHOTOS, resizeToJpeg, toLocalUri, fetchSpotPhotoRecords, pathFromPublicUrl } from '@/lib/spotPhotos';
+import { createSpot, updateSpot, type OriginalSpot, type SpotDraft } from '@/lib/spotSave';
+import type { DraftPhoto } from '@/lib/spotDraft';
 import { useLocationPickerStore } from '@/store/locationPicker';
 import { useSpotCameraStore, type CapturedPhoto } from '@/store/spotCamera';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
@@ -71,8 +79,11 @@ const MORE_GENRES = ['Macro', 'Aerial', 'Long Exposure', 'Black & White', 'Night
 // Values for the spot's `time_of_day` column, shown as single-select chips.
 const TIME_PERIODS = ['Morning', 'Afternoon', 'Evening', 'Night'];
 
-/** A photo chosen for the post. width/height come from the library picker; null for camera shots. */
-type PickedPhoto = { uri: string; width: number | null; height: number | null };
+/** Valid PhotoStyleKey values, to check a style read back from the database. */
+const STYLE_KEYS: PhotoStyleKey[] = ['none', 'polaroid', 'vintage', 'filmRetro', 'goldenHour', 'blueHour', 'noir'];
+
+/** Furthest an edit may move the pin from where the spot was first posted (matches guard_spot_edit). */
+const MAX_EDIT_MOVE_METERS = 2000;
 
 /** A confirmed spot location: coordinates plus the address parts found for them. */
 type ResolvedLocation = { lat: number; lng: number; details: PlaceDetails };
@@ -87,6 +98,30 @@ export default function AddSpot() {
   // Safe-area insets keep the custom top bar clear of the status bar / notch.
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const navigation = useNavigation();
+  // Edit mode: the id of the spot being edited, from /spot/[id]'s Edit button.
+  const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const isEdit = !!editId;
+  const [editLoading, setEditLoading] = useState(isEdit);
+  const [editLoadError, setEditLoadError] = useState(false);
+  // The spot as it was when the screen opened: what updateSpot diffs against.
+  const originalRef = useRef<OriginalSpot | null>(null);
+  // Where it was first posted: the 2 km limit is measured from here.
+  const [editOrigin, setEditOrigin] = useState<{ lat: number; lng: number } | null>(null);
+  // JSON of the loaded form, to tell whether anything was changed.
+  const [initialSnapshot, setInitialSnapshot] = useState<string | null>(null);
+  // Set once a save succeeds, so leaving afterwards doesn't ask to discard.
+  const leavingRef = useRef(false);
+  // Bumped by "Try again" on the load error, to re-run the load.
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  // The spot has a style from before style settings were saved: it can only
+  // be kept or removed, not re-applied.
+  const [hasOldStyle, setHasOldStyle] = useState(false);
+  const [removeOldStyle, setRemoveOldStyle] = useState(false);
+  // Local copy of a remote cover for the style preview: the styled snapshot
+  // is captured from the preview, and a still-downloading remote image would
+  // come out blank.
+  const [framedUri, setFramedUri] = useState<string | null>(null);
   // Zustand handoff slots: /pick-location writes `picked`, /spot-camera
   // writes `captured`. This screen reads each one and then clears it.
   const picked = useLocationPickerStore((s) => s.picked);
@@ -103,12 +138,14 @@ export default function AddSpot() {
   const [description, setDescription] = useState('');
   const [bestTime, setBestTime] = useState('');
   const [genre, setGenre] = useState<string | null>(null);
-  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  const [photos, setPhotos] = useState<DraftPhoto[]>([]);
   const hero = photos[0]?.uri ?? null;
   // Extra capture metadata (GPS, altitude, place, weather) that only exists
   // when the photo came from the in-app geo-tag camera; null for library picks.
   // It describes the spot, so it's taken from the first camera capture only,
   // and dropped if that photo is removed (its `uri` identifies it).
+  // Edit mode never changes a spot's geo-tag data: a camera shot added while
+  // editing becomes just another photo.
   const [captureGeoData, setCaptureGeoData] = useState<CapturedPhoto | null>(null);
   // Optional photo style. The ref points at the rendered PhotoStyleFrame so
   // it can be captured to an image on save.
@@ -195,7 +232,7 @@ export default function AddSpot() {
   useFocusEffect(
     useCallbackSafe(() => {
       if (captured) {
-        setPhotos((prev) => (prev.length < MAX_SPOT_PHOTOS ? [...prev, { uri: captured.uri, width: null, height: null }] : prev));
+        setPhotos((prev) => (prev.length < MAX_SPOT_PHOTOS ? [...prev, { uri: captured.uri, width: captured.width || null, height: captured.height || null }] : prev));
         setCaptureGeoData((prev) => prev ?? captured);
         setCaptured(null);
       }
@@ -224,7 +261,7 @@ export default function AddSpot() {
       orderedSelection: true,
     });
     if (result.canceled) return;
-    const picked: PickedPhoto[] = result.assets.map((a) => ({ uri: a.uri, width: a.width || null, height: a.height || null }));
+    const picked: DraftPhoto[] = result.assets.map((a) => ({ uri: a.uri, width: a.width || null, height: a.height || null }));
     setPhotos((prev) => {
       // Skip duplicates (the same library photo picked twice) and cap the total.
       const fresh = picked.filter((p) => !prev.some((q) => q.uri === p.uri));
@@ -350,7 +387,13 @@ export default function AddSpot() {
     router.push({
       pathname: '/pick-location',
       // The address goes along too, so the picker doesn't look up the same point again.
-      params: base ? { lat: String(base.lat), lng: String(base.lng), details: JSON.stringify(base.details) } : {},
+      params: base
+        ? {
+            lat: String(base.lat), lng: String(base.lng), details: JSON.stringify(base.details),
+            // Edit mode: the picker refuses points over 2 km from the original.
+            ...(editOrigin ? { originLat: String(editOrigin.lat), originLng: String(editOrigin.lng), maxMeters: String(MAX_EDIT_MOVE_METERS) } : {}),
+          }
+        : {},
     });
   }
 
@@ -366,7 +409,8 @@ export default function AddSpot() {
     try {
       // The cover photo, shrunk: the model doesn't need full resolution and
       // a smaller payload keeps the Edge Function call quick.
-      const { base64 } = await resizeToJpeg(hero, 1024);
+      // An existing spot's cover is a remote URL; the manipulator needs a local file.
+      const { base64 } = await resizeToJpeg(await toLocalUri(hero), 1024);
       const result = await generateCaption(base64);
       setTitle(result.title);
       setDescription(result.description);
@@ -377,6 +421,135 @@ export default function AddSpot() {
       setGeneratingCaption(false);
     }
   }
+
+  // The form as one value, for saving and for "has anything changed?".
+  const draft: SpotDraft | null = useMemo(() => (resolvedLocation ? {
+    title, description, bestTime, genre: genre ?? '', timeOfDay, photos,
+    location: resolvedLocation, placeName,
+    style: { key: photoStyle, caption: styleCaption, font: styleCaptionFont, removeOld: removeOldStyle },
+  } : null), [title, description, bestTime, genre, timeOfDay, photos, resolvedLocation, placeName, photoStyle, styleCaption, styleCaptionFont, removeOldStyle]);
+  const snapshot = useMemo(() => JSON.stringify(draft), [draft]);
+  const dirty = isEdit && initialSnapshot !== null && snapshot !== initialSnapshot;
+
+  // Edit mode: load the spot once into the form. This modal mounts fresh
+  // each time it opens, so a plain effect is enough.
+  // Keyed on the user id, not the session object: the session is replaced
+  // on every token refresh (about hourly), which would reload the spot and
+  // wipe edits in progress.
+  const userId = session?.user.id ?? null;
+  useEffect(() => {
+    if (!editId || !userId) return;
+    let cancelled = false;
+    setEditLoading(true);
+    setEditLoadError(false);
+    (async () => {
+      const [{ data: core, error: coreError }, { data: row, error: rowError }, records, { data: originRows }] = await Promise.all([
+        // get_spot gives lat/lng (the table's geography column doesn't read back as numbers).
+        supabase.rpc('get_spot', { spot_id: editId }).single(),
+        supabase.from('spots')
+          .select('title, description, best_time, genre, time_of_day, photo_url, styled_photo_url, photo_style, style_caption, style_caption_font, place_name, place_locality, place_district, place_state, place_country, place_postcode, location_label, created_by')
+          .eq('id', editId).maybeSingle(),
+        fetchSpotPhotoRecords(editId),
+        // Where it was first posted (private; owner only): the 2 km limit's centre.
+        supabase.rpc('get_spot_origin', { p_spot_id: editId }),
+      ]);
+      if (cancelled) return;
+      const spot = row as null | {
+        title: string; description: string | null; best_time: string | null; genre: string | null; time_of_day: string | null;
+        photo_url: string | null; styled_photo_url: string | null; photo_style: string | null; style_caption: string | null; style_caption_font: string | null;
+        place_name: string | null; place_locality: string | null; place_district: string | null; place_state: string | null;
+        place_country: string | null; place_postcode: string | null; location_label: string | null; created_by: string | null;
+      };
+      const coords = core as { lat: number; lng: number } | null;
+      if (coreError || rowError || !spot || !coords || spot.created_by !== userId) {
+        setEditLoadError(true);
+        setEditLoading(false);
+        return;
+      }
+
+      // Photos: spot_photos rows in order, or (posted before multi-photo) just the cover.
+      let loaded: DraftPhoto[] = records.map((r) => ({ uri: r.photo_url, width: r.width, height: r.height, storagePath: r.storage_path }));
+      if (loaded.length === 0 && spot.photo_url) {
+        const path = pathFromPublicUrl(spot.photo_url);
+        if (path) {
+          // Posted before multi-photo: its size was never stored, and
+          // spot_photos needs one, so measure the image.
+          const size = await new Promise<{ width: number; height: number } | null>((resolve) =>
+            Image.getSize(spot.photo_url!, (width, height) => resolve({ width, height }), () => resolve(null))
+          );
+          if (cancelled) return;
+          loaded = [{ uri: spot.photo_url, width: size?.width ?? null, height: size?.height ?? null, storagePath: path }];
+        }
+      }
+      originalRef.current = {
+        photoPaths: loaded.map((p) => p.storagePath!),
+        photoRows: records.map(({ storage_path, width, height }) => ({ storage_path, width, height })),
+        styledPhotoUrl: spot.styled_photo_url,
+        style: { key: spot.photo_style, caption: spot.style_caption, font: spot.style_caption_font },
+      };
+
+      const g = spot.genre ?? '';
+      const knownGenre = [...CORE_GENRES, ...MORE_GENRES].includes(g);
+      const styleKey = STYLE_KEYS.includes(spot.photo_style as PhotoStyleKey) ? (spot.photo_style as PhotoStyleKey) : 'none';
+      const loc = {
+        lat: coords.lat, lng: coords.lng,
+        details: { name: null, locality: spot.place_locality, district: spot.place_district, state: spot.place_state, country: spot.place_country, postcode: spot.place_postcode },
+      };
+      const name = spot.place_name ?? spot.location_label ?? '';
+
+      setPhotos(loaded);
+      setTitle(spot.title ?? '');
+      setDescription(spot.description ?? '');
+      setBestTime(spot.best_time ?? '');
+      setGenre(g);
+      setCustomMode(!!g && !knownGenre);
+      setShowMoreGenres(MORE_GENRES.includes(g));
+      setTimeOfDay(spot.time_of_day);
+      setResolvedLocation(loc);
+      setPlaceName(name);
+      // Their name is theirs: fine-tuning the pin keeps it.
+      nameEditedRef.current = true;
+      setPhotoStyle(styleKey);
+      setStyleCaption(spot.style_caption ?? '');
+      setStyleCaptionFont((spot.style_caption_font as CaptionFontKey | null) ?? 'displayItalic');
+      const origin = (originRows as { lat: number; lng: number }[] | null)?.[0];
+      setEditOrigin(origin ?? { lat: coords.lat, lng: coords.lng });
+      setHasOldStyle(!!spot.styled_photo_url && !spot.photo_style);
+      setRemoveOldStyle(false);
+      setInitialSnapshot(JSON.stringify({
+        title: spot.title ?? '', description: spot.description ?? '', bestTime: spot.best_time ?? '', genre: g, timeOfDay: spot.time_of_day,
+        photos: loaded, location: loc, placeName: name,
+        style: { key: styleKey, caption: spot.style_caption ?? '', font: (spot.style_caption_font as CaptionFontKey | null) ?? 'displayItalic', removeOld: false },
+      }));
+      setEditLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [editId, userId, loadAttempt]);
+
+  // Style preview source: a local copy of a remote (already stored) cover.
+  useEffect(() => {
+    let cancelled = false;
+    if (!hero || photoStyle === 'none') { setFramedUri(null); return; }
+    if (!hero.startsWith('http')) { setFramedUri(hero); return; }
+    setFramedUri(null);
+    toLocalUri(hero).then((uri) => { if (!cancelled) setFramedUri(uri); }).catch(() => { if (!cancelled) setFramedUri(hero); });
+    return () => { cancelled = true; };
+  }, [hero, photoStyle]);
+
+  // Leaving an edit with unsaved changes asks first (back button, swipe, or
+  // the hardware back key all go through beforeRemove).
+  useEffect(() => {
+    if (!isEdit) return;
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (!dirty || leavingRef.current || saving) return;
+      e.preventDefault();
+      Alert.alert('Discard changes?', 'Your edits to this spot will be lost.', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: () => { leavingRef.current = true; navigation.dispatch(e.data.action); } },
+      ]);
+    });
+    return unsubscribe;
+  }, [navigation, isEdit, dirty, saving]);
 
   /**
    * Validates the form, uploads the photos, and inserts the spot plus one
@@ -401,109 +574,46 @@ export default function AddSpot() {
       return;
     }
     // Screen is behind the onboarded auth guard, so this is only a type-narrowing safety check.
-    if (!session) return;
+    if (!session || !draft) return;
 
     setSaving(true);
-    // Everything uploaded or created so far, for the rollback in `catch`.
-    const uploadedPaths: string[] = [];
-    let spotId: string | null = null;
-    // Snapshot: the strip is disabled while saving, but the loop must not
-    // depend on state that could change under it.
-    const toUpload = photos;
+    const hooks = {
+      // The style preview is on screen while saving, so it can be captured.
+      renderStyled: () => captureViewAsBase64(stylePreviewRef),
+      onProgress: (done: number, total: number) => setUploadProgress({ done, total }),
+    };
     try {
-      // Upload every photo, one at a time (gentler on mobile data than ten
-      // parallel uploads). uploadSpotPhoto resizes each and writes it under
-      // the user's id folder, the only folder the bucket policy allows.
-      const uploaded: UploadedPhoto[] = [];
-      for (let i = 0; i < toUpload.length; i++) {
-        setUploadProgress({ done: i, total: toUpload.length });
-        const { uri, width: w, height: h } = toUpload[i];
-        const photo = await uploadSpotPhoto(session.user.id, uri, i, w && h ? { width: w, height: h } : undefined);
-        uploadedPaths.push(photo.storage_path);
-        uploaded.push(photo);
+      if (isEdit && editId && originalRef.current) {
+        await updateSpot(session.user.id, editId, draft, originalRef.current, hooks);
+        if (!mountedRef.current) return;
+        leavingRef.current = true;
+        Alert.alert('Spot updated', 'Your changes are live.');
+        router.back();
+      } else {
+        await createSpot(session.user.id, draft, captureGeoData, hooks);
+        // Closed mid-upload: the spot is posted, but there's nothing to go back from.
+        if (!mountedRef.current) return;
+        leavingRef.current = true;
+        Alert.alert('Spot added', 'Your spot is now live on the map.');
+        router.back();
       }
-      setUploadProgress(null);
-
-      // If a style was chosen, snapshot the on-screen PhotoStyleFrame preview
-      // (of the cover) into a JPEG and upload it as an extra file, stored in
-      // `styled_photo_url` so the original photo is kept untouched. React
-      // Native has no usable Blob, so base64 is decoded to an ArrayBuffer.
-      let styledPhotoUrl: string | null = null;
-      if (photoStyle !== 'none') {
-        const styledBase64 = await captureViewAsBase64(stylePreviewRef);
-        const styledFileName = `${session.user.id}/${Date.now()}_styled.jpg`;
-        const { error: styledUploadError } = await supabase.storage
-          .from('spot-photos')
-          .upload(styledFileName, decode(styledBase64), { contentType: 'image/jpeg' });
-        if (styledUploadError) throw styledUploadError;
-        uploadedPaths.push(styledFileName);
-        styledPhotoUrl = supabase.storage.from('spot-photos').getPublicUrl(styledFileName).data.publicUrl;
-      }
-
-      // Insert the spot row (writes go straight to tables; reads use RPCs).
-      // photo_url is the cover, so the map pin and every older reader of
-      // this column show it. The capture_* and weather_* columns are only
-      // filled for photos from the in-app camera. `location` is sent as EWKT
-      // text ("SRID=4326;POINT(lng lat)") which PostGIS parses into its
-      // geography column; note that longitude comes first.
-      const { data: spotRow, error: insertError } = await supabase.from('spots').insert({
-        title,
-        description: description || null,
-        best_time: bestTime || null,
-        genre,
-        time_of_day: timeOfDay,
-        photo_url: uploaded[0].photo_url,
-        styled_photo_url: styledPhotoUrl,
-        capture_lat: captureGeoData?.lat ?? null,
-        capture_lng: captureGeoData?.lng ?? null,
-        capture_altitude: captureGeoData?.altitude ?? null,
-        captured_at: captureGeoData?.capturedAt ?? null,
-        capture_place_name: captureGeoData?.placeName ?? null,
-        capture_address: captureGeoData?.address ?? null,
-        weather_temp_c: captureGeoData?.weatherTempC ?? null,
-        weather_condition: captureGeoData?.weatherCondition ?? null,
-        location: `SRID=4326;POINT(${resolvedLocation.lng} ${resolvedLocation.lat})`,
-        // The user's name plus the address parts, separately for Spot
-        // Detail, and composed into location_label for every older reader
-        // (map card, chat spot-shares, trail generator).
-        place_name: placeName.trim(),
-        place_locality: resolvedLocation.details.locality,
-        place_district: resolvedLocation.details.district,
-        place_state: resolvedLocation.details.state,
-        place_country: resolvedLocation.details.country,
-        place_postcode: resolvedLocation.details.postcode,
-        location_label: composeLocationLabel(placeName.trim(), resolvedLocation.details),
-        created_by: session.user.id,
-      }).select('id').single();
-      if (insertError) throw insertError;
-      spotId = spotRow.id;
-
-      // One row per photo, cover at position 0, in a single insert.
-      const { error: photosError } = await supabase.from('spot_photos').insert(
-        uploaded.map((p, position) => ({ spot_id: spotId, position, storage_path: p.storage_path, width: p.width, height: p.height }))
-      );
-      if (photosError) throw photosError;
-
-      // Closed mid-upload: the spot is posted, but there's nothing to go back from.
-      if (!mountedRef.current) return;
-      Alert.alert('Spot added', 'Your spot is now live on the map.');
-      router.back();
     } catch (err) {
       console.warn('add-spot save failed', err instanceof Error ? err.message : err);
-      // Roll back so nothing half-posted is left behind: deleting the spot
-      // cascades to any spot_photos rows, then the files go. Both are
-      // best-effort; the user-facing outcome is the same either way.
-      if (spotId) await supabase.from('spots').delete().eq('id', spotId);
-      await removeSpotFiles(uploadedPaths);
       // A Postgres/PostgREST error carries a `code`; only blame the network
       // when the server never answered.
-      const serverRejected = typeof (err as { code?: unknown } | null)?.code === 'string';
-      if (mountedRef.current) {
+      const code = (err as { code?: unknown } | null)?.code;
+      const serverRejected = typeof code === 'string';
+      const nothing = isEdit ? 'Your spot is unchanged.' : 'Nothing was posted.';
+      // 22023 is the app's own rule check (e.g. the 2 km move limit); its
+      // message is written for people, so show it as is.
+      if (code === '22023' && mountedRef.current) {
+        Alert.alert(isEdit ? "Couldn't save your changes" : "Couldn't save your spot", `${(err as { message?: string }).message ?? ''} ${nothing}`.trim());
+      } else if (mountedRef.current) {
         Alert.alert(
-          "Couldn't save your spot",
+          isEdit ? "Couldn't save your changes" : "Couldn't save your spot",
           serverRejected
-            ? 'Nothing was posted. Something went wrong on our side. Please try again in a moment.'
-            : 'Nothing was posted. Check your connection and try again.'
+            ? `${nothing} Something went wrong on our side. Please try again in a moment.`
+            : `${nothing} Check your connection and try again.`
         );
       }
     } finally {
@@ -519,16 +629,30 @@ export default function AddSpot() {
   return (
     <ScreenBackground>
       {/* Hide the native modal header (this screen draws its own top bar); no swipe-to-dismiss while a save is uploading. */}
-      <Stack.Screen options={{ headerShown: false, gestureEnabled: !saving }} />
+      <Stack.Screen options={{ headerShown: false, gestureEnabled: !saving && !(isEdit && dirty) }} />
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} disabled={saving} accessibilityRole="button" accessibilityLabel="Close">
+        <Pressable onPress={() => router.back()} style={styles.backBtn} disabled={saving} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
           <Ionicons name="chevron-back" size={20} color={theme.color.cream} />
         </Pressable>
-        <Text style={styles.topBarTitle}>Add a spot</Text>
+        <Text style={styles.topBarTitle}>{isEdit ? 'Edit spot' : 'Add a spot'}</Text>
         <View style={{ width: 36 }} />
       </View>
 
-      {/* KeyboardAwareScrollView scrolls the focused TextInput above the keyboard. */}
+      {/* Edit mode: loading and error states replace the form until the spot is in. */}
+      {isEdit && editLoading ? (
+        <View style={styles.center}><ActivityIndicator color={theme.color.gold} accessibilityLabel="Opening your spot" /></View>
+      ) : isEdit && editLoadError ? (
+        <View style={styles.center}>
+          <Text style={styles.centerText}>Couldn&apos;t open this spot for editing. Check your connection, or it may no longer be yours to edit.</Text>
+          <Pressable onPress={() => setLoadAttempt((n) => n + 1)} style={styles.centerBtn} accessibilityRole="button">
+            <Text style={styles.centerBtnText}>Try again</Text>
+          </Pressable>
+          <Pressable onPress={() => router.back()} style={styles.centerLink} accessibilityRole="button">
+            <Text style={styles.centerLinkText}>Go back</Text>
+          </Pressable>
+        </View>
+      ) : (
+      /* KeyboardAwareScrollView scrolls the focused TextInput above the keyboard. */
       <KeyboardAwareScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" enableOnAndroid extraScrollHeight={80}>
         {/* Photos: cover preview plus the thumbnail strip once chosen, otherwise Camera (geo-tag camera) and Library buttons. */}
         <Text style={styles.label}>{photos.length > 1 ? 'Photos' : 'Photo'}</Text>
@@ -549,10 +673,17 @@ export default function AddSpot() {
           <>
             <Text style={styles.label}>{photos.length > 1 ? 'Style the cover (optional)' : 'Add a style (optional)'}</Text>
             <PhotoStylePicker value={photoStyle} onChange={setPhotoStyle} />
+            {/* An older style can't be re-applied: offer keep or remove (it goes anyway if the cover changes). */}
+            {isEdit && hasOldStyle && photoStyle === 'none' && (
+              <Pressable onPress={() => setRemoveOldStyle((v) => !v)} style={styles.oldStyleRow} accessibilityRole="checkbox" accessibilityState={{ checked: removeOldStyle }}>
+                <Ionicons name={removeOldStyle ? 'checkbox' : 'square-outline'} size={18} color={theme.color.gold} />
+                <Text style={styles.oldStyleText}>Remove the cover&apos;s current style</Text>
+              </Pressable>
+            )}
             {photoStyle !== 'none' && (
               <>
                 <View style={styles.stylePreviewWrap}>
-                  <PhotoStyleFrame photoUri={hero} style={photoStyle} caption={styleCaption} captionFont={styleCaptionFont} size={Math.min(width - 96, 280)} innerRef={stylePreviewRef} />
+                  <PhotoStyleFrame photoUri={framedUri} style={photoStyle} caption={styleCaption} captionFont={styleCaptionFont} size={Math.min(width - 96, 280)} innerRef={stylePreviewRef} />
                 </View>
                 <TextInput
                   style={[styles.input, { marginTop: 14 }]}
@@ -579,8 +710,9 @@ export default function AddSpot() {
         <Text style={styles.label}>Title</Text>
         <TextInput style={styles.input} placeholder="e.g. Marina Overlook" placeholderTextColor={theme.color.muted} value={title} onChangeText={setTitle} />
 
-        {/* Location: mode toggle between GPS ("I'm here now") and search ("From another trip"). */}
+        {/* Location: mode toggle between GPS ("I'm here now") and search ("From another trip"). Edit mode only fine-tunes. */}
         <Text style={styles.label}>Location</Text>
+        {!isEdit && (
         <View style={styles.modeRow}>
           <Pressable onPress={() => switchMode('here')} style={[styles.modeChip, locationMode === 'here' && styles.chipSelected]}>
             <Text style={[styles.chipText, locationMode === 'here' && styles.chipTextSelected]}>I&apos;m here now</Text>
@@ -589,9 +721,10 @@ export default function AddSpot() {
             <Text style={[styles.chipText, locationMode === 'remote' && styles.chipTextSelected]}>From another trip</Text>
           </Pressable>
         </View>
+        )}
 
         {/* The action for the active mode: a GPS detect button, or a search box with a Find button. */}
-        {locationMode === 'here' ? (
+        {isEdit ? null : locationMode === 'here' ? (
           <Pressable onPress={detectCurrentLocation} style={styles.locationActionBtn} disabled={resolvingLocation}>
             {resolvingLocation ? <ActivityIndicator color={theme.color.gold} size="small" /> : <Text style={styles.locationActionText}>📍 Detect my location</Text>}
           </Pressable>
@@ -615,13 +748,13 @@ export default function AddSpot() {
           />
         )}
         {resolvedLocation && (
-          <Pressable onPress={openLocationPicker} style={styles.fineTuneBtn}>
+          <Pressable onPress={openLocationPicker} style={styles.fineTuneBtn} accessibilityRole="button">
             <Ionicons name="map-outline" size={14} color={theme.color.gold} />
-            <Text style={styles.fineTuneText}>Fine-tune exact spot on map</Text>
+            <Text style={styles.fineTuneText}>{isEdit ? 'Fine-tune the pin (up to 2 km)' : 'Fine-tune exact spot on map'}</Text>
           </Pressable>
         )}
         {/* In search mode with nothing resolved yet, the map picker is offered as the third way in. */}
-        {!resolvedLocation && locationMode === 'remote' && (
+        {!isEdit && !resolvedLocation && locationMode === 'remote' && (
           <Pressable onPress={openLocationPicker} style={styles.fineTuneBtn}>
             <Ionicons name="map-outline" size={14} color={theme.color.gold} />
             <Text style={styles.fineTuneText}>Or pick location directly on map</Text>
@@ -664,18 +797,19 @@ export default function AddSpot() {
 
         {/* Submit button; disabled and showing a spinner while uploading. */}
         <Pressable
-          style={styles.submit}
+          style={[styles.submit, isEdit && !dirty && !saving && styles.submitDisabled]}
           onPress={handleSubmit}
-          disabled={saving}
+          disabled={saving || (isEdit && !dirty)}
           accessibilityRole="button"
-          accessibilityState={{ busy: saving }}
-          accessibilityLabel={uploadProgress ? `Uploading photo ${uploadProgress.done + 1} of ${uploadProgress.total}` : 'Save spot'}
+          accessibilityState={{ busy: saving, disabled: saving || (isEdit && !dirty) }}
+          accessibilityLabel={uploadProgress ? `Uploading photo ${uploadProgress.done + 1} of ${uploadProgress.total}` : isEdit ? (dirty ? 'Save changes' : 'Save changes, no changes yet') : 'Save spot'}
         >
           {uploadProgress ? (
             <Text style={styles.submitText}>Uploading {uploadProgress.done + 1}/{uploadProgress.total}…</Text>
-          ) : saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.submitText}>Save spot</Text>}
+          ) : saving ? <ActivityIndicator color={theme.color.dusk} /> : <Text style={styles.submitText}>{isEdit ? 'Save changes' : 'Save spot'}</Text>}
         </Pressable>
       </KeyboardAwareScrollView>
+      )}
     </ScreenBackground>
   );
 }
@@ -689,15 +823,6 @@ export default function AddSpot() {
 function useCallbackSafe<T extends (...args: any[]) => any>(fn: T, deps: any[]) {
   const React = require('react');
   return React.useCallback(fn, deps);
-}
-
-/**
- * "Sela Pass, Tawang, Arunachal Pradesh, India" for spots.location_label.
- * Parts already in the name (a place named after its town) aren't repeated.
- */
-function composeLocationLabel(name: string, d: PlaceDetails): string {
-  const parts = [name, d.locality, d.state, d.country].filter((p): p is string => !!p);
-  return parts.filter((p, i) => parts.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i).join(', ');
 }
 
 // Styles use design tokens (colors, fonts, radii) from constants/theme.ts.
@@ -732,9 +857,19 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   searchBtn: { backgroundColor: theme.color.gold, borderRadius: theme.radius.sm, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center' },
   searchBtnText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.dusk },
-  fineTuneBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
+  fineTuneBtn: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   fineTuneText: { fontFamily: theme.font.bodyRegular, fontSize: 12, color: theme.color.gold, textDecorationLine: 'underline' },
   // Submit button
   submit: { backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 15, alignItems: 'center', marginTop: 28 },
   submitText: { color: theme.color.dusk, fontFamily: theme.font.body, fontSize: 15 },
+  submitDisabled: { opacity: 0.5 },
+  // Edit mode loading / error
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  centerText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted, textAlign: 'center', marginBottom: 16 },
+  centerBtn: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 24, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.color.gold },
+  centerBtnText: { fontFamily: theme.font.body, fontSize: 13, color: theme.color.gold },
+  centerLink: { minHeight: 44, justifyContent: 'center', marginTop: 8 },
+  centerLinkText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.muted },
+  oldStyleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44 },
+  oldStyleText: { fontFamily: theme.font.bodyRegular, fontSize: 13, color: theme.color.cream },
 });

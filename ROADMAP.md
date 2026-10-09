@@ -13,6 +13,8 @@ considered" before proposing or building a feature — check here first.
 - **RLS baseline** — the pre-migration policies are now tracked, and recipients can no longer forge connections (`20260943000000_rls_baseline.sql`).
 - **Place names and addresses** — the poster names a spot's place; Add Spot and Spot Detail show locality, state, country, PIN and exact coordinates (`20260944000000_spot_place_details.sql`).
 - **Feed performance** — quiet background refresh, memoized post cards, nearby strips refreshed at most every 2 minutes.
+- **Edit Post** — Add Spot doubles as the editor (`?editId=`); see the Deferred table below for what it covers.
+- **Unit tests** — `jest-expo` with 41 tests over the pure logic in `lib/` (`npm test`); no component tests yet.
 - **Signed-in-only reads** — profiles, spots, likes and comments are no longer readable without an account; signup uses `is_username_available` (`20260945000000_signed_in_only_reads.sql`).
 
 ## Next up
@@ -39,7 +41,7 @@ re-proposing the feature as new:
 | Voice/video calling | Needs WebRTC infra (LiveKit, Stream Video, Agora) — a different order of engineering problem from the rest of the app |
 | Real push notifications | Needs `expo-notifications` + a server-side trigger (Supabase Edge Function) |
 | PDF export of saved trails | Needs `expo-print`; waiting on the save feature itself being solid first |
-| Edit Post | Spots are delete-and-recreate only today. Now the most-wanted follow-up: since multi-photo, users can't change the cover or add/remove photos after posting |
+| ~~Edit Post~~ | Done — owners edit text, place name, photos and cover, photo style, and can nudge the pin up to 2 km; saved in one transaction (`save_spot_edit`, `20260947000000_edit_spot.sql`); Spot Detail shows "· edited" |
 | Public/private account toggle | Not a flag — every read policy on `spots`/`profiles`/eventually `messages` would need connection-status-aware RLS |
 | Stories + highlights | Comparable in scope to everything built so far combined |
 | OTP-based signup | Real hardening, needs custom email templates + deep-link handling |
