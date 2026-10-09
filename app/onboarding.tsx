@@ -27,6 +27,8 @@ import { ScreenBackground } from '@/components/ScreenBackground';
 import { CountryPicker } from '@/components/CountryPicker';
 import { DateField } from '@/components/DateField';
 import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
+import { FieldLabel } from '@/components/FieldLabel';
+import { stillNeeded } from '@/lib/validation';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
 
 // Chip option lists. "CORE" lists show by default; "MORE" lists are revealed
@@ -56,6 +58,8 @@ export default function Onboarding() {
   // free-text "add your own" inputs before they're added as chips.
   const [userType, setUserType] = useState<string | null>(null);
   const [genres, setGenres] = useState<string[]>([]);
+  // Set by the first Save that finds something missing; flags those fields.
+  const [showMissing, setShowMissing] = useState(false);
   const [showMoreGenres, setShowMoreGenres] = useState(false);
   const [customGenre, setCustomGenre] = useState('');
   const [placeInterests, setPlaceInterests] = useState<string[]>([]);
@@ -84,6 +88,14 @@ export default function Onboarding() {
     if (customPlace.trim() && !placeInterests.includes(customPlace.trim())) { setPlaceInterests((prev) => [...prev, customPlace.trim()]); setCustomPlace(''); }
   }
 
+  // Required answers, in form order.
+  const requirements = [
+    { ok: !!userType, name: 'whether you’re a traveler, photographer or both' },
+    { ok: genres.length > 0, name: 'at least one photography interest' },
+    { ok: !!travelStyle, name: 'a travel style' },
+    { ok: !!homeCity.trim(), name: 'your home city' },
+  ];
+
   /**
    * Validates the form, writes the answers to the user's `profiles` row with
    * `onboarded: true`, then refreshes the profile in AuthProvider so the
@@ -92,9 +104,12 @@ export default function Onboarding() {
    */
   async function handleSave() {
     // Required: user type, at least one genre, travel style, home city.
-    // Country, places and the next-trip fields are optional.
-    if (!userType || genres.length === 0 || !travelStyle || !homeCity) {
-      Alert.alert('Almost done', 'Please choose what kind of photographer you are, at least one interest, a travel style, and your home city.');
+    // Country, places and the next-trip fields are optional. Only the ones
+    // still missing are named, and flagged in the form.
+    const message = stillNeeded(requirements);
+    if (message) {
+      setShowMissing(true);
+      Alert.alert('Almost done', message);
       return;
     }
     if (tripStartDate && tripEndDate && tripEndDate < tripStartDate) {
@@ -133,13 +148,13 @@ export default function Onboarding() {
         <Text style={styles.subtitle}>This helps other travelers and photographers find you.</Text>
 
         {/* User type: single choice. */}
-        <Text style={styles.label}>I am a...</Text>
+        <FieldLabel text="I am a..." missing={showMissing && !userType} style={styles.label} />
         <View style={styles.row}>
           {USER_TYPES.map((t) => <Chip key={t.value} label={t.label} selected={userType === t.value} onPress={() => setUserType(t.value)} />)}
         </View>
 
         {/* Genres: multi-select chips, a "More +" expander, and a custom input. */}
-        <Text style={styles.label}>Photography interests</Text>
+        <FieldLabel text="Photography interests" missing={showMissing && genres.length === 0} style={styles.label} />
         <View style={styles.row}>
           {[...CORE_GENRES, ...(showMoreGenres ? MORE_GENRES : [])].map((g) => <Chip key={g} label={g} selected={genres.includes(g)} onPress={() => toggleGenre(g)} />)}
           {!showMoreGenres && <Chip label="More +" selected={false} onPress={() => setShowMoreGenres(true)} />}
@@ -166,7 +181,7 @@ export default function Onboarding() {
         </View>
 
         {/* Travel style: single choice. */}
-        <Text style={styles.label}>Travel style</Text>
+        <FieldLabel text="Travel style" missing={showMissing && !travelStyle} style={styles.label} />
         <View style={styles.row}>
           {TRAVEL_STYLES.map((s) => <Chip key={s} label={s} selected={travelStyle === s} onPress={() => setTravelStyle(s)} />)}
         </View>
@@ -177,7 +192,7 @@ export default function Onboarding() {
           <Text style={{ color: country ? theme.color.cream : theme.color.muted, fontFamily: theme.font.bodyRegular, fontSize: 15 }}>{country || 'Select your country'}</Text>
         </Pressable>
 
-        <Text style={styles.label}>Home city</Text>
+        <FieldLabel text="Home city" missing={showMissing && !homeCity.trim()} style={styles.label} />
         <TextInput style={styles.input} placeholder="e.g. Guwahati" placeholderTextColor={theme.color.muted} value={homeCity} onChangeText={setHomeCity} />
 
         {/* Optional next trip: destinations via place search, plus start and

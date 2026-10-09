@@ -58,6 +58,8 @@ import { useAuth } from '@/context/AuthProvider';
 import { generateCaption } from '@/lib/ai';
 import { placeDetails, geocodePlace, type PlaceDetails } from '@/lib/geocoding';
 import { LocationDetailsCard } from '@/components/LocationDetailsCard';
+import { FieldLabel } from '@/components/FieldLabel';
+import { stillNeeded } from '@/lib/validation';
 import { haversineMeters } from '@/lib/clusterSpots';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PhotoStyleFrame, type PhotoStyleKey, type CaptionFontKey } from '@/components/PhotoStyleFrame';
@@ -167,6 +169,9 @@ export default function AddSpot() {
   const [timeOfDay, setTimeOfDay] = useState<string | null>(null);
   const [customMode, setCustomMode] = useState(false);
   const [generatingCaption, setGeneratingCaption] = useState(false);
+  // Set by the first Save that finds something missing: from then on each
+  // still-empty required field is flagged next to its label.
+  const [showMissing, setShowMissing] = useState(false);
 
   // Location state: which input mode is active ('here' = GPS, 'remote' =
   // search), the search text, the confirmed location, and a busy flag
@@ -422,6 +427,16 @@ export default function AddSpot() {
     }
   }
 
+  // Required fields, in form order, as "Still needed: …" names them.
+  const requirements = [
+    { ok: !!hero, name: 'a photo' },
+    { ok: !!title.trim(), name: 'a title' },
+    { ok: !!resolvedLocation, name: 'a location' },
+    // The place name can only be filled once there's a location.
+    { ok: !resolvedLocation || !!placeName.trim(), name: 'a place name' },
+    { ok: !!genre?.trim(), name: 'a genre' },
+  ];
+
   // The form as one value, for saving and for "has anything changed?".
   const draft: SpotDraft | null = useMemo(() => (resolvedLocation ? {
     title, description, bestTime, genre: genre ?? '', timeOfDay, photos,
@@ -560,17 +575,14 @@ export default function AddSpot() {
    * inserts, an alert, and router.back() on success.
    */
   async function handleSubmit() {
-    // Required fields: title, genre, at least one photo, and a resolved location.
-    if (!title || !genre || !hero) {
-      Alert.alert('Almost there', 'Add a title, a genre, and a photo before saving.');
-      return;
-    }
-    if (!resolvedLocation) {
-      Alert.alert('Location needed', locationMode === 'here' ? 'Tap "Detect my location" first.' : 'Search and confirm a place first.');
-      return;
-    }
-    if (!placeName.trim()) {
-      Alert.alert('Name this place', 'Give the location a name so others can find it.');
+    // Name only what's actually missing, and flag those fields in the form.
+    const message = stillNeeded(requirements);
+    if (message) {
+      setShowMissing(true);
+      const hint = !resolvedLocation
+        ? (locationMode === 'here' ? ' Tap "Detect my location" to set the location.' : ' Search for the place to set the location.')
+        : '';
+      Alert.alert('Almost there', message + hint);
       return;
     }
     // Screen is behind the onboarded auth guard, so this is only a type-narrowing safety check.
@@ -655,7 +667,7 @@ export default function AddSpot() {
       /* KeyboardAwareScrollView scrolls the focused TextInput above the keyboard. */
       <KeyboardAwareScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" enableOnAndroid extraScrollHeight={80}>
         {/* Photos: cover preview plus the thumbnail strip once chosen, otherwise Camera (geo-tag camera) and Library buttons. */}
-        <Text style={styles.label}>{photos.length > 1 ? 'Photos' : 'Photo'}</Text>
+        <FieldLabel text={photos.length > 1 ? 'Photos' : 'Photo'} missing={showMissing && !hero} style={styles.label} />
         {hero ? (
           <>
             <Image source={{ uri: hero }} style={styles.preview} />
@@ -707,11 +719,11 @@ export default function AddSpot() {
           </Pressable>
         )}
 
-        <Text style={styles.label}>Title</Text>
+        <FieldLabel text="Title" missing={showMissing && !title.trim()} style={styles.label} />
         <TextInput style={styles.input} placeholder="e.g. Marina Overlook" placeholderTextColor={theme.color.muted} value={title} onChangeText={setTitle} />
 
         {/* Location: mode toggle between GPS ("I'm here now") and search ("From another trip"). Edit mode only fine-tunes. */}
-        <Text style={styles.label}>Location</Text>
+        <FieldLabel text="Location" missing={showMissing && !resolvedLocation} style={styles.label} />
         {!isEdit && (
         <View style={styles.modeRow}>
           <Pressable onPress={() => switchMode('here')} style={[styles.modeChip, locationMode === 'here' && styles.chipSelected]}>
@@ -762,7 +774,7 @@ export default function AddSpot() {
         )}
 
         {/* Genre chips. "Custom" sets genre to '' and shows a free-text field that edits it directly. */}
-        <Text style={styles.label}>Genre</Text>
+        <FieldLabel text="Genre" missing={showMissing && !genre?.trim()} style={styles.label} />
         <View style={styles.row}>
           {[...CORE_GENRES, ...(showMoreGenres ? MORE_GENRES : [])].map((g) => (
             <Pressable key={g} onPress={() => { setGenre(g); setCustomMode(false); }} style={[styles.chip, genre === g && styles.chipSelected]}>

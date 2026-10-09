@@ -29,6 +29,8 @@ import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { ScreenBackground } from '@/components/ScreenBackground';
 import { PasswordInput } from '@/components/PasswordInput';
+import { FieldLabel } from '@/components/FieldLabel';
+import { stillNeeded } from '@/lib/validation';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
 
 /**
@@ -41,6 +43,8 @@ type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken';
 export default function SignUp() {
   // Form fields, the username check result, and the submit spinner flag.
   const [fullName, setFullName] = useState('');
+  // Set by the first Save that finds something missing; flags those fields.
+  const [showMissing, setShowMissing] = useState(false);
   const [username, setUsername] = useState('');
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle');
   const [email, setEmail] = useState('');
@@ -87,9 +91,16 @@ export default function SignUp() {
    * trimmed and lower-cased to match the availability check above.
    */
   async function handleSignUp() {
-    // Guard: every field is required.
-    if (!email || !password || !fullName || !username) {
-      Alert.alert('Missing info', 'Please fill in all fields.');
+    // Guard: every field is required. Name only the missing ones, and flag them.
+    const message = stillNeeded([
+      { ok: !!fullName.trim(), name: 'your name' },
+      { ok: !!username.trim(), name: 'a username' },
+      { ok: !!email.trim(), name: 'your email' },
+      { ok: !!password, name: 'a password' },
+    ]);
+    if (message) {
+      setShowMissing(true);
+      Alert.alert('Missing info', message);
       return;
     }
     // Guard: block a username the live check already found in use.
@@ -117,11 +128,11 @@ export default function SignUp() {
         <Text style={styles.wordmark}>Wanderlens</Text>
         <Text style={styles.title}>Create your account</Text>
 
-        <Text style={styles.label}>Full name</Text>
+        <FieldLabel text="Full name" missing={showMissing && !fullName.trim()} style={styles.label} />
         <TextInput style={styles.input} placeholder="Your name" placeholderTextColor={theme.color.muted} value={fullName} onChangeText={setFullName} autoCapitalize="words" />
 
         {/* Username field with an "@" prefix and the live availability indicator on the right */}
-        <Text style={styles.label}>Username</Text>
+        <FieldLabel text="Username" missing={showMissing && !username.trim()} style={styles.label} />
         <View style={styles.usernameRow}>
           <Text style={styles.atSign}>@</Text>
           <TextInput style={styles.usernameInput} placeholder="yourname" placeholderTextColor={theme.color.muted} value={username} onChangeText={setUsername} autoCapitalize="none" />
@@ -130,10 +141,10 @@ export default function SignUp() {
           {usernameStatus === 'taken' && <Text style={styles.taken}>taken</Text>}
         </View>
 
-        <Text style={styles.label}>Email</Text>
+        <FieldLabel text="Email" missing={showMissing && !email.trim()} style={styles.label} />
         <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.color.muted} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
 
-        <Text style={styles.label}>Password</Text>
+        <FieldLabel text="Password" missing={showMissing && !password} style={styles.label} />
         <PasswordInput placeholder="At least 6 characters" value={password} onChangeText={setPassword} />
 
         {/* Submit: disabled while loading to prevent double submits. */}
