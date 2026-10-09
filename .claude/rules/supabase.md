@@ -51,7 +51,10 @@ needs goes through a narrow `security definer` RPC, like
 `feed_spots` (legacy, no longer called), `nearby_spots`, `nearby_photographers`, `discover_people`,
 `get_spot`, `get_spot_comments`, `get_saved_spots`, `get_connection_status`,
 `get_notifications`, `get_unread_notification_count`, `mark_notifications_read`.
-Also a `handle_new_user` trigger that auto-creates a `profiles` row on signup.
+Also a `handle_new_user` trigger that auto-creates a `profiles` row on signup,
+and `ensure_my_profile()` (`20260946000000_ensure_my_profile.sql`), which
+AuthProvider calls to recreate the caller's row if it is ever missing —
+otherwise that account is stuck on onboarding, whose save is an UPDATE.
 
 **Storage buckets:** `spot-photos`, `profile-media` — both public-read, insert
 restricted to the authenticated owner's folder.

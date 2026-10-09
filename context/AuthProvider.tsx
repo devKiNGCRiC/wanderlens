@@ -136,12 +136,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [loading, setLoading] = useState(true);
   const [recoveryTokens, setRecoveryTokens] = useState<RecoveryTokens | null>(null);
 
-  // Loads the signed-in user's profile row. `.single()` expects exactly one
-  // row; on any error the previous profile value is left as it was.
+  // Loads the signed-in user's profile row. On a request error the previous
+  // profile value is left as it was.
+  // If the row is MISSING (the signup trigger failed, or it was deleted by
+  // hand), the account would otherwise be stuck on onboarding forever:
+  // onboarding saves with an UPDATE, which matches nothing. So the server
+  // recreates it once from the signup details (ensure_my_profile, which only
+  // ever acts on the caller) and the row is read again.
   // Wrapped in useCallback so its identity is stable for the effects below.
   const fetchProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (!error) setProfile(data);
+    const read = () => supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+    const { data, error } = await read();
+    if (error) return;
+    if (data) { setProfile(data); return; }
+    const { data: repaired, error: repairError } = await supabase.rpc('ensure_my_profile');
+    if (repairError || !repaired) { setProfile(null); return; }
+    const retry = await read();
+    if (!retry.error) setProfile(retry.data);
   }, []);
 
   // Kept on purpose: this is the earlier version that called getSession() AND
