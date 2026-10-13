@@ -31,6 +31,12 @@ tables predating migration tracking (see `supabase/migrations/` from
 that audit produced). Nothing is currently queued here — see "Deferred for
 later" below for what's deliberately not built, or propose something new.
 
+## Planned after project submission
+
+- **Trip history (travel journal).** Today a profile holds one trip, shown on profiles as Going to / Currently in / Was in (`lib/tripStatus.ts`). Next: a `trips` table so every trip is kept, listed as Upcoming / Now / Past, each past trip showing the spots the user posted during it (matched by dates and places). Connect keeps matching on upcoming and current trips. Stays a *log* of where you went and what you shot — no day-by-day itinerary planning, which would drift toward Mindtrip's positioning (see CLAUDE.md, "The Photo-Trail Generator is the itinerary generator").
+- **Sign in with Google**, with a "choose your username" step in onboarding (Google gives no username). Free on Supabase and covers practically every Play Store user. Email OTP after that if wanted; phone/SMS OTP last — every SMS costs money, Indian SMS needs DLT registration, and SMS-pumping fraud needs guarding.
+- **AI on/off switch and the free rule-based trail/caption versions**, then premium AI via Play Billing (RevenueCat) with server-side entitlement checks.
+
 ## Deferred for later / post-submission
 
 Consciously scoped out, not overlooked. Each has a real reason — read it before

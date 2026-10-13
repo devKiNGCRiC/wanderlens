@@ -35,6 +35,7 @@ import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
 import { PolaroidGridSkeleton } from '@/components/skeletons/PolaroidGridSkeleton';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTour } from '@/context/TourProvider';
+import { TripStatusLine } from '@/components/TripStatusLine';
 
 /** One of the user's own spots, as selected from the `spots` table for the grid. */
 // spot_photos is PostgREST's embedded count: one `{ count }` element (0 for spots posted before multi-photo).
@@ -167,6 +168,8 @@ export default function ProfileScreen() {
                 {profile?.username ? <Text style={styles.username}>@{profile.username}</Text> : null}
                 {profile?.country && <Text style={styles.country}>{countryCode ? flagEmoji(countryCode) : ''} {profile.country}</Text>}
                 {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+                {/* Upcoming / current / last trip (set in Edit Profile; drives Connect's trip matching). */}
+                <TripStatusLine destinations={profile?.trip_destinations ?? null} startDate={profile?.trip_start_date ?? null} endDate={profile?.trip_end_date ?? null} />
 
                 {/* Tags: user type and travel style open TagInfoModal; home city is display-only */}
                 <View style={styles.tagsRow}>

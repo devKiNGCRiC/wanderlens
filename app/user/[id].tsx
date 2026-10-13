@@ -41,6 +41,7 @@ import { ScreenBackground } from '@/components/ScreenBackground';
 import { PolaroidGridItem, rotationFor } from '@/components/PolaroidGridItem';
 import { flagEmoji, COUNTRIES } from '@/constants/countries';
 import { formatUserType } from '@/lib/formatUserType';
+import { TripStatusLine } from '@/components/TripStatusLine';
 
 /** A user's public profile row from the profiles table. */
 type PublicProfile = {
@@ -48,6 +49,7 @@ type PublicProfile = {
   avatar_url: string | null; banner_url: string | null; user_type: string | null;
   travel_style: string | null; home_city: string | null; country: string | null;
   photography_genres: string[] | null; place_interests: string[] | null;
+  trip_destinations: string[] | null; trip_start_date: string | null; trip_end_date: string | null;
 };
 /** One of the user's spots, just enough to render a polaroid grid tile. */
 // spot_photos is PostgREST's embedded count: one `{ count }` element (0 for spots posted before multi-photo).
@@ -270,6 +272,8 @@ export default function PublicProfile() {
               {profile.username ? <Text style={styles.username}>@{profile.username}</Text> : null}
               {profile.country && <Text style={styles.country}>{countryCode ? flagEmoji(countryCode) : ''} {profile.country}</Text>}
               {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+              {/* Where they're heading, are now, or last went: useful when deciding to connect. */}
+              <TripStatusLine destinations={profile.trip_destinations} startDate={profile.trip_start_date} endDate={profile.trip_end_date} />
               {/* Tag chips: user type, travel style, home city. */}
               <View style={styles.tagsRow}>
                 {typeLabel && <View style={styles.tag}><Text style={styles.tagText}>{typeLabel}</Text></View>}
