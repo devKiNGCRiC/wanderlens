@@ -25,6 +25,7 @@
 import { useState, useEffect } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { Link } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { theme } from '@/constants/theme';
 import { ScreenBackground } from '@/components/ScreenBackground';
@@ -32,12 +33,13 @@ import { PasswordInput } from '@/components/PasswordInput';
 import { FieldLabel } from '@/components/FieldLabel';
 import { stillNeeded } from '@/lib/validation';
 import { KeyboardAwareScrollView } from '@codler/react-native-keyboard-aware-scroll-view';
+import { USERNAME_MIN_LENGTH } from '@/lib/profiles';
 
 /**
  * State of the live username availability check:
  * idle (too short to check), checking (request pending), available, taken.
  */
-type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken';
+type UsernameStatus = 'idle' | 'short' | 'checking' | 'available' | 'taken';
 
 /** Sign-up screen component (default export = the route). */
 export default function SignUp() {
@@ -57,9 +59,13 @@ export default function SignUp() {
   useEffect(() => {
     // Usernames are stored lower-cased and trimmed, so compare the same form.
     const clean = username.trim().toLowerCase();
-    // Too short to be worth checking: reset the indicator and stop.
-    if (clean.length < 3) {
+    // Nothing typed: no indicator. Under the minimum: say so, don't query.
+    if (clean.length === 0) {
       setUsernameStatus('idle');
+      return;
+    }
+    if (clean.length < USERNAME_MIN_LENGTH) {
+      setUsernameStatus('short');
       return;
     }
     setUsernameStatus('checking');
@@ -103,6 +109,12 @@ export default function SignUp() {
       Alert.alert('Missing info', message);
       return;
     }
+    // Guard: the minimum length (the server enforces it too).
+    if (username.trim().length < USERNAME_MIN_LENGTH) {
+      setShowMissing(true);
+      Alert.alert('Username too short', `A username needs at least ${USERNAME_MIN_LENGTH} characters.`);
+      return;
+    }
     // Guard: block a username the live check already found in use.
     if (usernameStatus === 'taken') {
       Alert.alert('Username taken', 'Please choose a different username.');
@@ -137,9 +149,16 @@ export default function SignUp() {
           <Text style={styles.atSign}>@</Text>
           <TextInput style={styles.usernameInput} placeholder="yourname" placeholderTextColor={theme.color.muted} value={username} onChangeText={setUsername} autoCapitalize="none" />
           {usernameStatus === 'checking' && <ActivityIndicator size="small" color={theme.color.muted} />}
-          {usernameStatus === 'available' && <Text style={styles.available}>✓ available</Text>}
-          {usernameStatus === 'taken' && <Text style={styles.taken}>taken</Text>}
+          {/* Icons read faster than words; the labels keep them clear for screen readers. */}
+          {usernameStatus === 'available' && (
+            <Ionicons name="checkmark-circle" size={22} color={theme.color.success} accessibilityLabel="Username available" />
+          )}
+          {usernameStatus === 'taken' && (
+            <Ionicons name="close-circle" size={22} color={theme.color.ember} accessibilityLabel="Username taken" />
+          )}
         </View>
+        {usernameStatus === 'short' && <Text style={styles.usernameHint}>At least {USERNAME_MIN_LENGTH} characters</Text>}
+        {usernameStatus === 'taken' && <Text style={[styles.usernameHint, styles.usernameHintTaken]}>That username is taken</Text>}
 
         <FieldLabel text="Email" missing={showMissing && !email.trim()} style={styles.label} />
         <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.color.muted} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
@@ -172,8 +191,8 @@ const styles = StyleSheet.create({
   usernameRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.color.surface, borderRadius: theme.radius.sm, borderWidth: 1, borderColor: theme.color.surface2, paddingHorizontal: 14 },
   atSign: { fontFamily: theme.font.mono, fontSize: 15, color: theme.color.muted },
   usernameInput: { flex: 1, paddingVertical: 14, paddingHorizontal: 4, color: theme.color.cream, fontFamily: theme.font.bodyRegular, fontSize: 15 },
-  available: { fontFamily: theme.font.mono, fontSize: 11, color: theme.color.gold },
-  taken: { fontFamily: theme.font.mono, fontSize: 11, color: theme.color.ember },
+  usernameHint: { fontFamily: theme.font.bodyRegular, fontSize: 12, color: theme.color.muted, marginTop: 8 },
+  usernameHintTaken: { color: theme.color.ember },
   // Primary button and link
   button: { backgroundColor: theme.color.gold, borderRadius: theme.radius.md, paddingVertical: 15, alignItems: 'center', marginTop: 28 },
   buttonText: { color: theme.color.dusk, fontFamily: theme.font.body, fontSize: 15 },

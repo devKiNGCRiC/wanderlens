@@ -55,6 +55,10 @@ export const theme = {
     photoScrim: 'rgba(20,23,31,0.72)',
     // Inactive carousel page dot — cream, dimmed, so the gold active dot leads.
     dotInactive: 'rgba(246,241,231,0.6)',
+    // "Yes, this works" signals, e.g. an available username. A soft sage
+    // rather than a bright green, so it sits with the warm palette; ember
+    // stays the "no" colour.
+    success: '#8FC79A',
   },
   font: {
     // Fraunces: display serif for titles and hero moments only.

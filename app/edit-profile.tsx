@@ -42,6 +42,7 @@ import { PlaceAutocomplete } from '@/components/PlaceAutocomplete';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenBackground } from '@/components/ScreenBackground';
+import { USERNAME_MIN_LENGTH } from '@/lib/profiles';
 
 // Chip option lists (same as onboarding). "MORE" lists are revealed by the
 // "More +" chip; anything the user typed that isn't in these lists is
@@ -173,6 +174,18 @@ export default function EditProfile() {
       Alert.alert('Check your trip dates', 'The return date is before the start date.');
       return;
     }
+    // Same form signup stores (trimmed, lower case). A username can't be
+    // cleared, and a new one needs the minimum length; an existing shorter
+    // handle stays valid as long as it isn't changed.
+    const cleanUsername = username.trim().toLowerCase();
+    if (!cleanUsername) {
+      Alert.alert('Username needed', 'Your profile needs a username.');
+      return;
+    }
+    if (cleanUsername !== (profile?.username ?? '') && cleanUsername.length < USERNAME_MIN_LENGTH) {
+      Alert.alert('Username too short', `A username needs at least ${USERNAME_MIN_LENGTH} characters.`);
+      return;
+    }
     setSaving(true);
     try {
       // Start from the existing image URLs and replace only those the user
@@ -190,7 +203,7 @@ export default function EditProfile() {
         .from('profiles')
         .update({
           full_name: fullName || null,
-          username: username || null,
+          username: cleanUsername,
           bio: bio || null,
           user_type: userType,
           photography_genres: genres,

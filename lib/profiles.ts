@@ -15,6 +15,9 @@ import { supabase } from '@/lib/supabase';
  */
 export const DELETED_ACCOUNT_LABEL = 'Deleted account';
 
+/** Shortest username allowed (also enforced server-side: 20260948000000_username_min_length.sql). */
+export const USERNAME_MIN_LENGTH = 4;
+
 /**
  * Which of the given profile ids belong to deleted accounts, in one query.
  * On a failed query the set is empty, so nothing is treated as deleted.
