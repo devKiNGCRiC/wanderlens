@@ -16,8 +16,9 @@ are the product, and AI is a supporting feature.** It rests on three pillars:
    sequences *real community spots* into a photo outing, and a caption
    assistant. It is not a general chatbot.
 
-[`ROADMAP.md`](ROADMAP.md) lists what is built and what was deliberately
-deferred.
+[`ROADMAP.md`](ROADMAP.md) lists what is built, what is planned after
+project submission (trip history, Sign in with Google, free and premium AI
+options), and what was deliberately deferred.
 
 ---
 
@@ -26,18 +27,35 @@ deferred.
 ### Discover
 - **Feed**: a golden-hour/blue-hour countdown for your location, a "Spots
   near you" strip, a "Photographers who've shot nearby" strip, and a
-  vertical feed with genre and time-of-day filters.
+  vertical feed. Sort it by **For you**, **Recent**, **Nearby** (with the
+  distance to each spot), **Most liked** or **Most discussed** (this week,
+  this month or all time), and filter by genre and time of day. "For you"
+  is a transparent rule-based score (your genres, your connections,
+  popularity and freshness), not AI.
+- **Photo carousel**: posts with several photos swipe through them, with a
+  "2/7" counter.
 - **Map**: every spot in the area on screen, loaded as you pan and zoom, with
   pins that group spots a few metres apart. Tap a pin for a card with the
-  photo and tips.
-- **Spot detail**: photo, tips, likes, saves, threaded comments (edit and
+  cover photo and tips.
+- **Spot detail**: all its photos, the place name with its address, PIN code
+  and exact coordinates, tips, likes, saves, threaded comments (edit and
   delete your own), sharing, and "View on map".
+- **Liked by**: tap a like count to see who liked a spot, and open their
+  profiles.
 
 ### Share
-- **Add a spot** with its location from GPS, a place search, or by tapping
-  the map. Location lookups fall back to OpenStreetMap when the phone's
-  geocoder fails, which it does for disputed regions such as Arunachal
-  Pradesh.
+- **Add a spot** with **1 to 10 photos**; you choose which one is the cover
+  (the photo on the map pin). Photos are resized on the phone before upload,
+  and saving is all-or-nothing: if any upload fails, nothing is posted.
+- **Location** from GPS, a place search, or by tapping the map. You **name
+  the place yourself**, because phone geocoders tend to rename a specific
+  pass or lake after the nearest town, and you see its locality, state,
+  country, PIN code and exact coordinates to check the pin. Lookups use
+  OpenStreetMap first, which also handles disputed regions such as Arunachal
+  Pradesh, where the Android geocoder fails.
+- **Edit a spot** you posted: text, place name, photos and cover, photo
+  style, and a pin nudge of up to 2 km. Others see "· edited"; likes and
+  comments are kept.
 - **Geo-tag camera**: shoot in the app to record coordinates, altitude, the
   place name and address, and the current weather, and save a "stamped" copy
   with that information to your gallery.
@@ -50,7 +68,10 @@ deferred.
 - **Discover people** by genre, or by **trip matching**: people whose planned
   trip shares a destination and overlapping dates with yours.
 - **Mutual connections**: send, accept, decline, cancel and remove requests.
-- **Public profiles** with each person's spots, and block and report.
+- **Public profiles** with each person's spots, their trip ("Going to",
+  "Currently in" or "Was in" a place, with dates), and block and report.
+- Chats and profiles of people who deleted their account show as
+  "Deleted account".
 
 ### Chat
 - 1:1 and group chats with photos, photo galleries, video, voice notes,
@@ -67,8 +88,10 @@ deferred.
 - **Saved spots**: your bookmarked spots.
 
 ### Account
-- Email/password sign-up with a live username check, onboarding, and
-  forgot-password through an email deep link.
+- Email/password sign-up with a live username check (at least 4
+  characters, with a ✓ or ✕ as you type), onboarding, and forgot-password
+  through an email deep link. Forms name only the fields you actually
+  missed and flag them in place.
 - An in-app **notification bell** for connection requests, likes, comments,
   replies, shares and message requests.
 - A **first-run tour** that highlights the key controls, and can be replayed
@@ -147,6 +170,26 @@ npm start            # afterwards: live reload for JavaScript changes
 You only need to rebuild after adding a native dependency or changing a
 config plugin in `app.config.js`.
 
+### A standalone APK (no laptop needed)
+
+The development app loads its JavaScript from your computer, so it doesn't
+work away from it. For an installable app with everything built in, use the
+EAS `preview` profile:
+
+1. EAS doesn't upload your `.env` (it's gitignored). Add the same
+   `EXPO_PUBLIC_*` values on [expo.dev](https://expo.dev) under the
+   project's **Environment variables**, for the **preview** environment.
+   Without them the build succeeds but the app fails at launch.
+2. Build:
+   ```bash
+   npx eas-cli build --platform android --profile preview
+   ```
+3. Uninstall the development app first (the two are signed differently),
+   then install the APK from the build link.
+
+If the build fails at the Sentry source-map upload, set `SENTRY_AUTH_TOKEN`
+as a secret EAS variable, or `SENTRY_DISABLE_AUTO_UPLOAD=true`.
+
 ### Backend setup
 
 > **Known gap:** `supabase/migrations/` does **not** hold the full schema yet.
@@ -155,10 +198,13 @@ config plugin in `app.config.js`.
 > (`feed_spots`, `nearby_spots`, `discover_people`, `get_spot`,
 > `get_spot_comments`, `get_saved_spots`, `get_connection_status`,
 > `handle_new_user`) were created in the Supabase dashboard before migrations
-> were tracked. The migrations cover everything added after that: chat,
-> notifications, AI quotas, account deletion, trips, geo-tags, notes, and
-> `nearby_photographers`. Setting up a fresh project from this repo alone is
-> not possible yet.
+> were tracked. Their **access rules are now tracked**
+> (`20260943000000_rls_baseline.sql`), but their table definitions and SQL
+> are not. The migrations cover everything added after that: chat,
+> notifications, AI quotas, account deletion, trips, geo-tags, notes,
+> multi-photo spots, Feed sorting and "Liked by", place details, Edit Post,
+> and the security hardening. Setting up a fresh project from this repo alone
+> is not possible yet.
 
 On the existing project:
 
@@ -203,20 +249,29 @@ the right block,** or it can be reached regardless of whether the user is
 signed in.
 
 ### Data
-- **Reads go through RPCs** (Postgres functions such as `feed_spots` and
-  `nearby_spots`) that return joined data in one request. **Writes go
-  straight to tables.**
+- **Reads go through RPCs** (Postgres functions such as `explore_spots`,
+  the Feed, and `nearby_spots`) that return joined data in one request.
+  **Writes go straight to tables**, except where several tables must change
+  together: an edit is saved in one transaction by `save_spot_edit`.
 - **Row Level Security is the security boundary.** The client is not trusted.
+  Community data (profiles, spots, likes, comments) is readable only by
+  signed-in users. Rules the app depends on are enforced in the database:
+  photo URLs must be the owner's own uploads, a pin can move at most 2 km
+  when edited, connection requests can't be forged, and usernames need 4+
+  characters.
 - Screens reload with `useFocusEffect` each time they come into view, so
-  data is never stale after navigating back.
+  data is never stale after navigating back. The Feed refreshes quietly
+  behind the posts already on screen, and each post is a memoized component,
+  so liking one doesn't re-render the rest.
 - Chat uses Supabase Realtime for new messages, read receipts and typing
   indicators.
 
 ### AI
 The app calls Supabase Edge Functions (`generate-trail`, `generate-caption`),
 never Groq or Gemini directly. Each function checks the user's login token
-and a per-user hourly and daily limit (`consume_ai_quota`) before calling the
-AI service. The API keys exist only as Supabase secrets. The trail generator
+and a per-user limit (`consume_ai_quota`) before calling the AI service:
+trails 10 per hour and 40 per day, captions 25 per hour and 120 per day,
+in rolling windows. The API keys exist only as Supabase secrets. The trail generator
 only sends real spots from the database to the model, and discards any stop
 the model returns that doesn't match one of them.
 
@@ -231,10 +286,11 @@ wanderlens/
 │   ├── (auth)/               # login, signup, forgot-password
 │   ├── (tabs)/               # Feed, Map, Connect, Chat, Profile
 │   ├── spot/[id].tsx         # Spot detail
+│   ├── spot-likes/[id].tsx   # "Liked by" list
 │   ├── user/[id].tsx         # Public profile
 │   ├── chat/                 # Conversation screen, archived chats
 │   ├── group/[id].tsx        # Group info and management
-│   ├── add-spot.tsx          # New spot (GPS / search / tap-to-pin)
+│   ├── add-spot.tsx          # New spot, and Edit spot (?editId=)
 │   ├── spot-camera.tsx       # Geo-tag camera
 │   ├── pick-location.tsx     # Tap-to-pin map
 │   ├── trail-generator.tsx   # AI photo trail
@@ -245,7 +301,8 @@ wanderlens/
 ├── components/               # Shared UI (chat/ and skeletons/ subfolders)
 ├── context/                  # Auth, Chat, Notifications, Tour providers
 ├── hooks/                    # useUserLocation, useGoldenHour, ...
-├── lib/                      # Supabase client, AI, geocoding, helpers
+├── lib/                      # Supabase client, AI, geocoding, spot saving, helpers
+├── __tests__/                # Unit tests for the pure logic in lib/
 ├── store/                    # Zustand stores for screen-to-screen handoff
 ├── constants/                # theme.ts (design tokens), countries, tour steps
 ├── supabase/
@@ -270,10 +327,18 @@ npm run android      # build and install the development app (Android)
 npm run ios          # same for iOS (macOS only)
 npm run lint         # ESLint (expo lint)
 npx tsc --noEmit     # type check; lint does not catch type errors
+npm test             # unit tests (jest-expo)
 ```
 
-There are no automated tests yet. A change counts as done when lint and the
-type check pass and it has been checked by hand on a development build.
+**Tests** cover the pure logic in `lib/`: map pin clustering, the
+golden-hour countdown, date, coordinate and address formatting, trip
+status, form validation messages, the Edit Post decisions (which photos to
+upload, which files to delete, what happens to a photo style), and the
+Feed's re-render optimisation. There are no screen tests; mocking Supabase,
+MapLibre and Reanimated is where that effort would go.
+
+A change counts as done when lint, the type check and the tests pass and it
+has been checked by hand on a development build.
 [`.claude/rules/testing.md`](.claude/rules/testing.md) has the manual
 checklist. The type check currently reports three known errors in unused
 Expo starter-template files (`components/ui/collapsible.tsx`,
